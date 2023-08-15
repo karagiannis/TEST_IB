@@ -9,9 +9,11 @@ from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
 from ibapi.contract import Contract
 import pandas as pd
+from barsizes import valid_bar_sizes, bar_size_suffix
+from ContractSamples import ContractSamples
 
 global_bar_size = None  # Initialize the global_bar_size variable
-
+DEBUG = False
 class MyWrapper(EWrapper):
     def __init__(self):
         super().__init__()
@@ -20,73 +22,79 @@ class MyWrapper(EWrapper):
         self.line_number = 1  # Initialize line number to 1
 
     def save_data_to_csv(self, reqId, filename, bar_size):
+        if DEBUG:
+            print("Inside save_data_to_csv")
+        # Specify the data folder where CSV files will be stored
         data_folder = "./historical_data/forex"
+
+        # Create the data folder if it doesn't exist
         os.makedirs(data_folder, exist_ok=True)
 
+        # Get the contract associated with the request ID
         contract = self.contract_map[reqId]['contract']
-        currency_pair = f"{contract.symbol}{contract.currency}"
-        currency_pair_folder = os.path.join(data_folder, currency_pair)
-        os.makedirs(currency_pair_folder, exist_ok=True)
 
-        # Map bar sizes to their corresponding suffixes
-        bar_size_suffix = {
-            "1 secs": "1_secs",
-            "5 secs": "5_secs",
-            "10 secs": "10_secs",
-            "15 secs": "15_secs",
-            "30 secs": "30_secs",
-            "1 min": "1_min",
-            "2 mins": "2_mins",
-            "3 mins": "3_mins",
-            "5 mins": "5_mins",
-            "10 mins": "10_mins",
-            "15 mins": "15_mins",
-            "20 mins": "20_mins",
-            "30 mins": "30_mins",
-            "1 hour": "1_hour",
-            "2 hours": "2_hours",
-            "3 hours": "3_hours",
-            "4 hours": "4_hours",
-            "8 hours": "8_hours",
-            "1 day": "1_day",
-            "1 week": "1_week",
-            "1 month": "1_month"
-        }
+        # Create a unique currency pair identifier using the contract symbol and currency
+        currency_pair = f"{contract.symbol}{contract.currency}"
+
+        bar_size_folder_name = bar_size.replace(" ", "_")
+        bar_size_filename = bar_size.replace(" ", "_")
+
+        # Create the folder path for the specific currency pair
+        currency_pair_folder = os.path.join(data_folder, f"{currency_pair}/{ bar_size_folder_name}")
+
+        # Create the currency pair folder if it doesn't exist
+        os.makedirs(currency_pair_folder, exist_ok=True)
+        # Replace space with underscore in bar_size for folder and filename
+
 
         # Check if the specified bar size exists in the mapping
-        if bar_size in bar_size_suffix:
+        if bar_size in valid_bar_sizes:
             # Add the bar size suffix to the filename
-            filename_with_suffix = f"{filename}_{bar_size_suffix[bar_size]}.csv"
+            filename_with_suffix = f"{filename}_{bar_size_filename}.csv"
+
         else:
             # If the bar size is not found, use a default suffix
             filename_with_suffix = f"{filename}_default.csv"
 
+        # Create the complete file path for the CSV file
         file_path = os.path.join(currency_pair_folder, filename_with_suffix)
 
+
+        # Check if the file already exists
         if os.path.exists(file_path):
-            # Load existing data and append new data
             try:
+                # Load existing data from the CSV file
                 existing_data = pd.read_csv(file_path)
 
                 # Convert the 'Date' column in existing_data to datetime objects
                 existing_data['Date'] = pd.to_datetime(existing_data['Date'])
 
+                # Create a DataFrame with new data to append
                 new_data = pd.DataFrame([
                     [pd.to_datetime(data_point.date), data_point.open, data_point.high, data_point.low,
                      data_point.close, data_point.volume]
                     for data_point in self.contract_map[reqId]['data']
                 ], columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
 
+                # Concatenate the existing data and new data
                 combined_data = pd.concat([existing_data, new_data])
+
+                # Remove duplicate rows based on the 'Date' column
                 combined_data.drop_duplicates(subset=['Date'], keep='first', inplace=True)
+
+                # Sort the combined data by the 'Date' column
                 combined_data.sort_values(by='Date', inplace=True)
 
+                # Write the combined data to the CSV file
                 combined_data.to_csv(file_path, index=False)
+
             except Exception as e:
-                print(f"Error occurred while appending data to the CSV file: {str(e)}")
+                print(f"Error occurred while appending data to existing CSV file: {str(e)}")
         else:
-            # Create a new file and write the data
+            if DEBUG:
+                print("Inside save_data_to_csv, trying to create csv-file because none existed")
             try:
+                # Create a new file and write the data
                 with open(file_path, mode='w', newline='') as file:
                     writer = csv.writer(file)
                     writer.writerow(['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
@@ -97,15 +105,23 @@ class MyWrapper(EWrapper):
                 print(f"Error occurred while creating and writing data to the CSV file: {str(e)}")
 
     def check_data_order(self, currency_pair_folder):
+        # List all files in the specified currency pair folder
         data_files = os.listdir(currency_pair_folder)
+
+        # Extract the date parts from the file names and sort them
         dates = [int(file_name.split('_')[1].split('.')[0]) for file_name in data_files]
         dates.sort()
 
+        # Iterate through the sorted dates to check for missing data
         for i in range(1, len(dates)):
+            # Get the previous and current dates in the sorted list
             prev_date = dates[i - 1]
             curr_date = dates[i]
+
+            # Check if there are missing dates between the previous and current dates
             if curr_date - prev_date > 1:
-                print(f"You are missing dates {prev_date + 1} to {curr_date - 1}")
+                # Print a message indicating the range of missing dates
+                print(f"You are missing data for dates {prev_date + 1} to {curr_date - 1}")
 
     def historicalData(self, reqId, bar):
         print("Received historical data:", bar)
@@ -128,6 +144,7 @@ class MyWrapper(EWrapper):
         contract = self.contract_map[reqId]['contract']
         filename = f"{contract.symbol}{contract.currency}"
         self.save_data_to_csv(reqId, filename, global_bar_size)
+        print("save_data_to_csv returned")
 
 
     def find_first_friday(self, approximate_start_date):
@@ -136,6 +153,9 @@ class MyWrapper(EWrapper):
         while start_date.weekday() != 4:  # 4 represents Friday (Monday is 0, Sunday is 6)
             start_date += datetime.timedelta(days=1)
         return start_date
+
+    def headTimestamp(self, reqId: int, headTimestamp: str):
+        print("HeadTimestamp. ReqId:", reqId, "HeadTimeStamp:", headTimestamp)
 
 
 class MyClient(EClient):
@@ -206,34 +226,22 @@ class MyClient(EClient):
         self.wrapper.data_received = True  # Update the flag when all data has been requested.
 
 
+
 wrapper = MyWrapper()
 client = MyClient(wrapper)
 historical_data_thread = None
 
 
 def validate_bar_size(bar_size):
-    valid_bar_sizes = [
-        "1 secs", "5 secs", "10 secs", "15 secs", "30 secs",
-        "1 min", "2 mins", "3 mins", "5 mins", "10 mins",
-        "15 mins", "20 mins", "30 mins", "1 hour", "2 hours",
-        "3 hours", "4 hours", "8 hours", "1 day", "1 week",
-        "1 month"
-    ]
+
     return bar_size in valid_bar_sizes
 
-
-def validate_bar_size(bar_size):
-    valid_bar_sizes = [
-        "1 secs", "5 secs", "10 secs", "15 secs", "30 secs",
-        "1 min", "2 mins", "3 mins", "5 mins", "10 mins",
-        "15 mins", "20 mins", "30 mins", "1 hour", "2 hours",
-        "3 hours", "4 hours", "8 hours", "1 day", "1 week",
-        "1 month"
-    ]
-    return bar_size in valid_bar_sizes
 
 
 def main():
+    global global_bar_size
+
+    '''
     approximate_start_date = None
     bar_size = None
 
@@ -245,6 +253,9 @@ def main():
         print("Usage: python temp3.py <approximate_start_date> <bar_size>")
         print("Example: python temp3.py 20230201 1 day")
         sys.exit(1)
+    '''
+    approximate_start_date = "20230215"
+    bar_size_string = "1 day"
 
     # Parse the bar size argument
     bar_size_parts = bar_size_string.split()
@@ -257,13 +268,6 @@ def main():
     time_unit = bar_size_parts[1]
 
 
-    # Validate the bar size
-    valid_bar_sizes = [
-        "1 secs", "5 secs", "10 secs", "15 secs", "30 secs",
-        "1 min", "2 mins", "3 mins", "5 mins", "10 mins", "15 mins", "20 mins", "30 mins",
-        "1 hour", "2 hours", "3 hours", "4 hours", "8 hours",
-        "1 day", "1 week", "1 month"
-    ]
 
     if bar_size_string not in valid_bar_sizes:
         print("Error: Wrong bar size")
@@ -306,12 +310,20 @@ def main():
         contract.currency = pair[3:]
         contract.exchange = "IDEALPRO"
         contract.secType = "CASH"  # Specify the security type
-        client.request_data(contract, pair, approximate_start_date, bar_size)
+        #contract = ContractSamples.USStockAtSmart()
+        #client.reqHeadTimeStamp(4101, contract, "TRADES", 0, 1)
+        # Wait for a moment to allow the response to come in
+        #time.sleep(10)
+        client.request_data(contract, pair, approximate_start_date, global_bar_size)
+        #client.reqHistoricalData(4102, contract, " 20230213 00:00:00 US/Eastern", "5 D", "1 day",
+        #                  "MIDPOINT", 1, 1, False, [])
+        time.sleep(3)  # Wait for 3 seconds before making another request
 
-    data_folder = "./historical_data/forex"
-    for currency_pair in majors:
-        currency_pair_folder = os.path.join(data_folder, f"{currency_pair[1][:6]}{currency_pair[1][6:]}")
-        wrapper.check_data_order(currency_pair_folder)
+    #data_folder = "./historical_data/forex"
+    #for contract, currency_pair in majors:
+    #    currency_pair_folder = os.path.join(data_folder, f"{currency_pair[3:]}{currency_pair[:3]}")
+    #    wrapper.check_data_order(currency_pair_folder)
+    client.disconnect()
 
 
 if __name__ == "__main__":
