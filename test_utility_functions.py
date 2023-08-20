@@ -1,0 +1,229 @@
+
+
+import importlib
+import utility_functions
+
+# Reload the utility_functions module
+importlib.reload(utility_functions)
+
+
+import pandas as pd
+import os
+import re
+
+
+def generate_listAllCsvfilesPaths(directory, path=""):
+    csv_file_collection = pd.DataFrame()  # Create a local DataFrame
+
+    dirs = os.listdir(directory)
+    csv_files_found = False
+
+    for item in dirs:
+        item_path = os.path.join(directory, item)
+        if os.path.isfile(item_path) and item.endswith('.csv'):
+            csv_files_found = True
+            csv_to_append = pd.DataFrame({'file_path': [item_path]})
+            #print(item_path)
+            csv_file_collection = pd.concat([csv_file_collection, csv_to_append], ignore_index=True)
+
+    if not csv_files_found:
+        for dir in dirs:
+            new_directory = os.path.join(directory, dir)
+            csv_file_collection = pd.concat([csv_file_collection, generate_listAllCsvfilesPaths(new_directory)],
+                                            ignore_index=True)
+
+    return csv_file_collection  # Return the local DataFrame
+
+def test_listAllCsvfilesPaths(directory, path=""):
+
+
+    # Body of function test_listAllCsvfilesPaths
+    output_expected = generate_listAllCsvfilesPaths("./historical_data")
+    output_expected_sorted = sorted(output_expected['file_path'].tolist())
+
+    output_actual = utility_functions.listAllCsvfilesPaths("./historical_data")
+    output_actual_sorted = sorted(output_actual)
+
+    try:
+        assert output_expected_sorted == output_actual_sorted
+        print("Testing if utility function lists all csv-files....\033[92m OK!\033[0m")
+
+    except AssertionError:
+        print("Testing if utility function lists all csv-files....\033[91m FAILED!\033[0m")
+
+
+
+
+def test_file_is_empty():
+
+    #Helper function
+    def is_file_empty_alternative(file_path):
+        try:
+            with open(file_path, 'r') as file:
+                content = file.read()
+                return len(content) == 0
+        except FileNotFoundError as e:
+                print(f"File not found: {e}")
+        except PermissionError as e:
+                print(f"Permission error: {e}")
+        except OSError as e:
+                print(f"OS error: {e}")
+        except Exception as e:
+                print(f"An error occurred: {e}")
+
+    #Body of test_file_is_empty
+    df_of_file_paths = generate_listAllCsvfilesPaths("./historical_data")
+    list_sorted_file_paths = sorted(df_of_file_paths['file_path'].tolist())
+    expected_output_list=[]
+    actual_output_list = []
+
+    for file_path in list_sorted_file_paths:
+        expected_output_list.append(is_file_empty_alternative(file_path))
+        actual_output_list.append(utility_functions.file_is_empty(file_path))
+
+    try:
+        assert expected_output_list== actual_output_list
+        print("Testing utility function file_is_empty....\033[92m OK!\033[0m")
+
+    except AssertionError:
+        print("Testing utility function file_is_empty....\033[91m FAILED!\033[0m")
+
+
+def test_bar_size_from_file_path():
+    #Helper function
+    def alternative_bar_size_from_file_path(file_path):
+        filename = os.path.basename(file_path)
+        match = re.search(r'_(.+?)\.csv', filename)
+        if match:
+            bar_size = match.group(1).replace('_', ' ')
+            return bar_size
+        return None
+
+    #Body of test_bar_size_from_file_path
+    df_of_file_paths = generate_listAllCsvfilesPaths("./historical_data")
+    list_sorted_file_paths = sorted(df_of_file_paths['file_path'].tolist())
+    expected_output_list = []
+    actual_output_list = []
+    for file_path in list_sorted_file_paths:
+        expected_output_list.append(alternative_bar_size_from_file_path(file_path))
+        actual_output_list.append(utility_functions.bar_size_from_file_path(file_path))
+    #print("expected_output_list:",expected_output_list)
+    #print("actual_output_list:",actual_output_list)
+    try:
+        assert expected_output_list== actual_output_list
+        print("Testing utility function bar_size_from_file_path....\033[92m OK!\033[0m")
+
+    except AssertionError:
+        print("Testing utility function bar_size_from_file_path....\033[91m FAILED!\033[0m")
+
+
+def test_maximum_duration_time_when_requesting_bars():
+
+    expected_duration_for_bar_dict = {
+    "30 secs"   :   "28800 S",
+    "1 min"     :   "1 D",
+    "2 mins"    :   "2 D",
+    "3 mins"    :   "1 W",
+    "5 mins"    :   "1 W",
+    "10 mins"   :   "1 W",
+    "15 mins"   :   "1 W",
+    "20 mins"   :   "1 W",
+    "30 mins"   :   "1 M",
+    "1 hour"    :   "1 M",
+    "2 hours"   :   "1 M",
+    "3 hours"   :   "1 M",
+    "4 hours"   :   "1 M",
+    "8 hours"   :   "1 M",
+    "1 day"     :   "1 Y",
+    "1 week"    :   "1 Y",
+    "1 month"   :   "1 Y"}
+
+    actual_duration_for_bar_dict = {}
+    for bar_size, max_duration in expected_duration_for_bar_dict.items():
+        actual_duration_for_bar_dict[bar_size]= \
+            utility_functions.maximum_duration_time_when_requesting_bars(bar_size)
+
+        #print("expected_duration_for_bar_dict:",expected_duration_for_bar_dict)
+        #print("actual_duration_for_bar_dict:",actual_duration_for_bar_dict)
+    try:
+        assert expected_duration_for_bar_dict == actual_duration_for_bar_dict
+        print("Testing utility function maximum_duration_time_when_requesting_bars....\033[92m OK!\033[0m")
+
+    except AssertionError:
+        print("Testing utility function maximum_duration_time_when_requesting_bars....\033[91m FAILED!\033[0m")
+
+def test_last_OHLC_date_from_csv_file():
+    file_path = "./historical_data/forex/USDCAD/1_day/USDCAD_1_day.csv"  # Replace with the actual file path
+    expected_last_date = "2023-08-10 00:00:00.000000000"  # Replace with your expected value
+
+    actual_last_date = utility_functions.last_OHLC_date_from_csv_file(file_path)
+    #print("expected_last_date:",expected_last_date)
+    #print("actual_last_date:",actual_last_date)
+
+    try:
+        assert expected_last_date == actual_last_date
+        print("Testing utility function last_OHLC_date_from_csv_file....\033[92m OK!\033[0m")
+    except AssertionError:
+        print("Testing utility function last_OHLC_date_from_csv_file....\033[91m FAILED!\033[0m")
+
+def test_clean_csv_file_from_fake_bars():
+    file_path_unclean = "./historical_data/forex/USDCAD/1_day/USDCAD_1_day.txt"
+    utility_functions.clean_csv_file_from_fake_bars(file_path_unclean)
+    file_path_clean = "./historical_data/forex/USDCAD/1_day/USDCAD_1_day.csv"
+
+    # Read the unclean and clean CSV files into DataFrames
+    df_unclean = pd.read_csv(file_path_unclean)
+    df_clean = pd.read_csv(file_path_clean)
+
+    # Compare the two DataFrames
+    if df_unclean.equals(df_clean):
+        print("Testing utility function clean_csv_file_from_fake_bars....\033[92m OK!\033[0m")
+    else:
+        print("Testing utility function clean_csv_file_from_fake_bars....\033[91m FAILED!\033[0m")
+
+def test_get_instrument_from_file_name():
+    def alternative_get_instrument_from_file_name(file_path):
+        #Example file_path: ./historical_data/forex/NZDUSD/1_day/NZDUSD_1_day.csv
+        filename = os.path.basename(file_path)
+        match = re.search(r'^(.*?)_', filename)
+        if match:
+            instrument = match.group(1)
+            print("instrument:",instrument)
+            return instrument
+        return None
+
+    df_of_file_paths = generate_listAllCsvfilesPaths("./historical_data")
+    list_sorted_file_paths = sorted(df_of_file_paths['file_path'].tolist())
+    output_expected=[]
+    output_actual =[]
+    for file_path in list_sorted_file_paths:
+        output_expected.append(alternative_get_instrument_from_file_name(file_path))
+        output_actual.append(utility_functions.get_instrument_from_file_name(file_path))
+
+    #print("output_expected:",output_expected)
+    #print("output_actual:",output_actual)
+    try:
+        assert output_actual == output_expected
+        print("Testing utility function get_instrument_from_file_name....\033[92m OK!\033[0m")
+
+    except AssertionError:
+        print("Testing utility function get_instrument_from_file_name....\033[91m FAILED!\033[0m")
+
+
+
+
+def main():
+    test_listAllCsvfilesPaths("./historical_data")
+    test_file_is_empty()
+    test_bar_size_from_file_path()
+    test_maximum_duration_time_when_requesting_bars()
+    test_last_OHLC_date_from_csv_file()
+    test_clean_csv_file_from_fake_bars()
+    test_get_instrument_from_file_name()
+
+if __name__ == "__main__":
+    main()
+
+
+
+
