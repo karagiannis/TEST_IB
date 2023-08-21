@@ -298,16 +298,16 @@ def test_get_contract_from_csv_file_name():
                 if not callable(getattr(expected_contract, attr_name)) and not attr_name.startswith("__"):
                     expected_value = getattr(expected_contract, attr_name)
                     actual_value = getattr(actual_contract, attr_name)
-                    if expected_value != actual_value:
-                        print(f"Attribute {attr_name}: Expected = {expected_value}, Actual = {actual_value}")
+                    #if expected_value != actual_value:
+                    print(f"Attribute {attr_name}: Expected = {expected_value}, Actual = {actual_value}")
 
             print("Actual Contract:")
             for attr_name in dir(actual_contract):
                 if not callable(getattr(actual_contract, attr_name)) and not attr_name.startswith("__"):
                     expected_value = getattr(expected_contract, attr_name)
                     actual_value = getattr(actual_contract, attr_name)
-                    if expected_value != actual_value:
-                        print(f"Attribute {attr_name}: Expected = {expected_value}, Actual = {actual_value}")
+                    #if expected_value != actual_value:
+                    print(f"Attribute {attr_name}: Expected = {expected_value}, Actual = {actual_value}")
 
             print("---------------------")
 
