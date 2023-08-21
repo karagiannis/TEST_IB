@@ -129,7 +129,7 @@ def get_instrument_from_file_name(file_path):
 # exchange we are going to enter in Contract
 # Contract.exchange = "IDEALPRO" for Forex or
 # Contract.exchage = "SMART" for US Stock and ETFs
-def get_instrumentype_from_file_name(file_path):
+def get_instrument_class_from_file_path(file_path):
     instrument_class = file_path.split('/')[2]
     return instrument_class  # Example "forex" or "USStock" or "USBond"
 
@@ -144,8 +144,8 @@ def get_instrumentype_from_file_name(file_path):
 # ./historical_data/USStock/....
 # ./historical_data/USBond/....
 # with a similar structure
-def get_contract_from_csv_file_name(file_path):
-    instrument_class = get_instrument_type_from_file_name(file_path)
+def get_contract_from_csv_file_path(file_path):
+    instrument_class = get_instrument_class_from_file_path(file_path)
     contract = Contract()
     if instrument_class == 'forex':
         instrument = get_instrument_from_file_name(file_path)  # Example: 'EURUSD'
@@ -153,13 +153,13 @@ def get_contract_from_csv_file_name(file_path):
         contract.currency = instrument[3:]
         contract.exchange = "IDEALPRO"
         contract.secType = "CASH"  # Specify the security type
-    elif instrument_class == 'USStock':
+    elif instrument_class == 'US_Stock':
         contract.symbol = get_instrument_from_file_name(file_path)  # Example: 'IBM'
         contract.secType = "STK"
         contract.currency = "USD"
         contract.exchange = "SMART"
         contract.primaryExchange = "ARCA"
-    elif instrument_class == 'USBond':
+    elif instrument_class == 'US_Bond':
         contract.symbol = get_instrument_from_file_name(file_path)  # Example CUSP_id "912828C57"
         contract.secType = "BOND"
         contract.exchange = "SMART"
@@ -203,15 +203,6 @@ def get_last_friday_date():
     return temp
 
 
-def get_max_duration_for_bar_request(bar_size):
-    for key, value in allowable_bar_sizes.items():
-        if bar_size == key:
-            bar_size_in_seconds = value
-            for duration, barsize_range in allowable_duration.items():
-                if barsize_range[0] <= bar_size_in_seconds <= barsize_range[1]:
-                    max_duration_for_bar_request = duration
-                    break
-    return max_duration_for_bar_request
 
 
 # Here we assume that we have made a maximum duration request for a particular

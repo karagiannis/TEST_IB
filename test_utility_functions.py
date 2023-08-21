@@ -5,7 +5,7 @@ import utility_functions
 
 # Reload the utility_functions module
 importlib.reload(utility_functions)
-
+from ibapi.contract import Contract
 
 import pandas as pd
 import os
@@ -188,7 +188,7 @@ def test_get_instrument_from_file_name():
         match = re.search(r'^(.*?)_', filename)
         if match:
             instrument = match.group(1)
-            print("instrument:",instrument)
+            #print("instrument:",instrument)
             return instrument
         return None
 
@@ -210,6 +210,103 @@ def test_get_instrument_from_file_name():
         print("Testing utility function get_instrument_from_file_name....\033[91m FAILED!\033[0m")
 
 
+def test_get_instrument_class_from_file_name():
+    #Example filepath: "./historical_data/forex/USDCAD/1_day/USDCAD_1_day.csv"
+    def alternative_get_instrument_class_from_file_name(file_path):
+        # Example file_path: ./historical_data/forex/NZDUSD/1_day/NZDUSD_1_day.csv
+        match = re.search(r'./historical_data/(.*?)/', file_path)
+        if match:
+            instrument_type = match.group(1)
+            #print("instrument_type:", instrument_type)
+            return instrument_type
+        return None
+
+    df_of_file_paths = generate_listAllCsvfilesPaths("./historical_data")
+    list_sorted_file_paths = sorted(df_of_file_paths['file_path'].tolist())
+    output_expected = []
+    output_actual = []
+    for file_path in list_sorted_file_paths:
+        output_expected.append(alternative_get_instrument_class_from_file_name(file_path))
+        output_actual.append(utility_functions.get_instrument_class_from_file_path(file_path))
+
+    try:
+        assert output_actual == output_expected
+        print("Testing utility function get_instrument_type_from_file_path....\033[92m OK!\033[0m")
+
+    except AssertionError:
+        print("Testing utility function get_instrument_type_from_file_path....\033[91m FAILED!\033[0m")
+
+
+def test_get_contract_from_csv_file_name():
+    df_of_file_paths = generate_listAllCsvfilesPaths("./historical_data")
+    list_sorted_file_paths = sorted(df_of_file_paths['file_path'].tolist())
+
+    actual_contract_list = []
+    expected_contract_list=[]
+
+    for file_path in list_sorted_file_paths:
+        instrument_class = utility_functions.get_instrument_class_from_file_path(file_path)
+        instrument = utility_functions.get_instrument_from_file_name(file_path)
+
+          # Create a new instance for each iteration
+
+        if instrument_class == 'forex':
+            # Set up expected attributes for forex contract
+            expected_contract = Contract()
+            expected_contract.symbol = instrument[:3]
+            expected_contract.currency = instrument[3:]
+            expected_contract.exchange = "IDEALPRO"
+            expected_contract.secType = "CASH"
+            expected_contract_list.append(expected_contract)
+
+        elif instrument_class == 'US_Stock':
+            # Set up expected attributes for US stock contract
+            expected_contract = Contract()  # Create a new instance for US stock contract
+            expected_contract.symbol = instrument
+            expected_contract.currency = "USD"
+            expected_contract.exchange = "SMART"
+            expected_contract.secType = "STK"
+            expected_contract.primaryExchange = "ARCA"
+            expected_contract_list.append(expected_contract)
+
+        elif instrument_class == 'US_Bond':
+            # Set up expected attributes for US bond contract
+            expected_contract = Contract()  # Create a new instance for US bond contract
+            expected_contract.symbol = instrument
+            expected_contract.currency = "USD"
+            expected_contract.exchange = "SMART"
+            expected_contract.secType = "BOND"
+            expected_contract_list.append(expected_contract)
+
+        # Generate the contract using the function under test
+        actual_contract = utility_functions.get_contract_from_csv_file_path(file_path)
+        actual_contract_list.append(actual_contract)
+
+
+        #for (actual_attr, actual_value), (expected_attr, expected_value) in zip(vars(actual_contract).items(),
+        #                                                                       vars(expected_contract).items()):
+        #    print(f"actual_contract: {actual_attr} = {actual_value}, expected_contract: {expected_attr} = {expected_value}")
+
+
+
+    # Loop through the expected_contract_list and actual_contract_list
+    for expected_contract, actual_contract in zip(expected_contract_list, actual_contract_list):
+        print("Expected Contract:")
+        for attr_name, expected_value in vars(expected_contract).items():
+            print(f"{attr_name} = {expected_value}")
+
+        print("Actual Contract:")
+        for attr_name, actual_value in vars(actual_contract).items():
+            print(f"{attr_name} = {actual_value}")
+
+        print("---------------------")
+
+    # Compare the generated contracts with the expected contracts
+    try:
+        assert actual_contract_list == expected_contract_list
+        print("Testing utility function get_contract_from_csv_file_path....\033[92m OK!\033[0m")
+    except AssertionError:
+        print("Testing utility function get_contract_from_csv_file_path....\033[91m FAILED!\033[0m")
 
 
 def main():
@@ -220,6 +317,8 @@ def main():
     test_last_OHLC_date_from_csv_file()
     test_clean_csv_file_from_fake_bars()
     test_get_instrument_from_file_name()
+    test_get_instrument_class_from_file_name()
+    test_get_contract_from_csv_file_name()
 
 if __name__ == "__main__":
     main()
