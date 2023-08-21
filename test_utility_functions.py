@@ -287,26 +287,29 @@ def test_get_contract_from_csv_file_name():
         #                                                                       vars(expected_contract).items()):
         #    print(f"actual_contract: {actual_attr} = {actual_value}, expected_contract: {expected_attr} = {expected_value}")
 
-        # Loop through the contracts and compare them
+
+    # Loop through the contracts and compare them
     for index, (expected_contract, actual_contract) in enumerate(zip(expected_contract_list, actual_contract_list)):
         if expected_contract != actual_contract:
             print(f"Contract comparison failed at index {index}")
 
             print("Expected Contract:")
-            for attr_name, expected_value in vars(expected_contract).items():
-                actual_value = getattr(actual_contract, attr_name)
-                if expected_value != actual_value:
-                    print(f"Attribute {attr_name}: Expected = {expected_value}, Actual = {actual_value}")
+            for attr_name in dir(expected_contract):
+                if not callable(getattr(expected_contract, attr_name)) and not attr_name.startswith("__"):
+                    expected_value = getattr(expected_contract, attr_name)
+                    actual_value = getattr(actual_contract, attr_name)
+                    if expected_value != actual_value:
+                        print(f"Attribute {attr_name}: Expected = {expected_value}, Actual = {actual_value}")
 
             print("Actual Contract:")
-            for attr_name, actual_value in vars(actual_contract).items():
-                expected_value = getattr(expected_contract, attr_name)
-                if expected_value != actual_value:
-                    print(f"Attribute {attr_name}: Expected = {expected_value}, Actual = {actual_value}")
+            for attr_name in dir(actual_contract):
+                if not callable(getattr(actual_contract, attr_name)) and not attr_name.startswith("__"):
+                    expected_value = getattr(expected_contract, attr_name)
+                    actual_value = getattr(actual_contract, attr_name)
+                    if expected_value != actual_value:
+                        print(f"Attribute {attr_name}: Expected = {expected_value}, Actual = {actual_value}")
 
             print("---------------------")
-
-
 
     # Compare the generated contracts with the expected contracts
     try:
@@ -329,6 +332,34 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Certainly, I'd be happy to explain!
+
+# dir(expected_contract): The dir() function returns a list of attributes and methods of the given object.
+# In this case, it will return a list of attribute names for the expected_contract object.
+
+# if not callable(getattr(expected_contract, attr_name)) and not attr_name.startswith("__"):
+# This line has two conditions joined by the and logical operator:
+
+#     not callable(getattr(expected_contract, attr_name)):
+#     This condition checks if the attribute is not a callable function. It ensures that we are only comparing
+#     values of non-method attributes.
+
+#     not attr_name.startswith("__"):
+#     This condition checks if the attribute name does not start with "__".
+#     This is to exclude internal attributes (usually Python's special attributes) that are not relevant for comparison.
+
+# expected_value = getattr(expected_contract, attr_name):
+# This line uses the getattr() function to get the value of the attribute with the name attr_name from the expected_contract object.
+# So, getattr(expected_contract, attr_name) returns the value associated with the attribute name.
+
+# actual_value = getattr(actual_contract, attr_name):
+# Similarly, this line uses getattr() to get the value of the same attribute name from the actual_contract object.
+
+# To summarize, the code is iterating through the attributes of both the expected_contract and actual_contract objects.
+# It is excluding callable attributes and internal attributes.
+# For each attribute, it's getting the corresponding values from both objects and comparing them.
+# If the values are not equal, it prints out the attribute name, the expected value, and the actual value for easy debugging.
 
 
 
