@@ -287,19 +287,26 @@ def test_get_contract_from_csv_file_name():
         #                                                                       vars(expected_contract).items()):
         #    print(f"actual_contract: {actual_attr} = {actual_value}, expected_contract: {expected_attr} = {expected_value}")
 
+        # Loop through the contracts and compare them
+    for index, (expected_contract, actual_contract) in enumerate(zip(expected_contract_list, actual_contract_list)):
+        if expected_contract != actual_contract:
+            print(f"Contract comparison failed at index {index}")
+
+            print("Expected Contract:")
+            for attr_name, expected_value in vars(expected_contract).items():
+                actual_value = getattr(actual_contract, attr_name)
+                if expected_value != actual_value:
+                    print(f"Attribute {attr_name}: Expected = {expected_value}, Actual = {actual_value}")
+
+            print("Actual Contract:")
+            for attr_name, actual_value in vars(actual_contract).items():
+                expected_value = getattr(expected_contract, attr_name)
+                if expected_value != actual_value:
+                    print(f"Attribute {attr_name}: Expected = {expected_value}, Actual = {actual_value}")
+
+            print("---------------------")
 
 
-    # Loop through the expected_contract_list and actual_contract_list
-    for expected_contract, actual_contract in zip(expected_contract_list, actual_contract_list):
-        print("Expected Contract:")
-        for attr_name, expected_value in vars(expected_contract).items():
-            print(f"{attr_name} = {expected_value}")
-
-        print("Actual Contract:")
-        for attr_name, actual_value in vars(actual_contract).items():
-            print(f"{attr_name} = {actual_value}")
-
-        print("---------------------")
 
     # Compare the generated contracts with the expected contracts
     try:
