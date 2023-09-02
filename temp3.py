@@ -11,6 +11,11 @@ from ibapi.contract import Contract
 import pandas as pd
 from barsizes import valid_bar_sizes, bar_size_suffix
 from ContractSamples import ContractSamples
+import cProfile
+import signal
+# import concurrent.futures
+# import multiprocessing
+
 
 global_bar_size = None  # Initialize the global_bar_size variable
 DEBUG = False
@@ -138,7 +143,7 @@ class MyWrapper(EWrapper):
                 self.contract_map[reqId]['data'].append(bar)
 
     def historicalDataEnd(self, reqId, start: str, end: str):
-        print("HistoricalDataEnd. ReqId:", reqId)
+        print("HistoricalDataEnd. ReqId:", reqId,"self.data_received:", self.data_received)
         self.data_received = True
         # Since historicalDataEnd is called after all historical data is received, we can save the data to CSV here.
         contract = self.contract_map[reqId]['contract']
@@ -167,13 +172,23 @@ class MyClient(EClient):
         """
         Worker function for running the client event loop in a separate thread.
         """
-        while not self.wrapper.data_received:  # Use 'self.wrapper.data_received' to access the instance variable
-            self.run()  # Process IB messages
-            time.sleep(0.1)
-            # Wait for the historical data thread to complete
-            historical_data_thread.join()
+        print("Worker thread started")
+        print("Inside historical_data_worker, self.wrapper.data_received:", self.wrapper.data_received)
+        
+        if not self.wrapper.data_received:
+            try:
+                self.run()  # Process IB messages
+            except Exception as e:
+                print(f"Exception in worker thread: {e}")
+                # Handle the exception as needed (e.g., log it, retry, etc.)
+            
+        print("Worker thread completed")
+        print("Worker thread joined")
+
+
 
     def request_data(self, contract, pair, approx_start_date, bar_size):
+        print("inside request_data, self.wrapper.data_received ", self.wrapper.data_received)
         eastern_tz = pytz.timezone('US/Eastern')
 
         # We will request OHLC bar data from the friday near approx_start_date and take 5 tradings days of OHLC bar
@@ -200,6 +215,7 @@ class MyClient(EClient):
         # Make the first data request of 5 bars
         self.reqHistoricalData(reqId, contract, end_date_time, "5 D", bar_size,
                                "MIDPOINT", 1, 1, False, [])
+        print("Inside request_data, self.wrapper.data_received:",  self.wrapper.data_received)
         time.sleep(3)  # Wait for 3 seconds before making another request
 
         while (end_date + datetime.timedelta(days=6)).strftime("%Y%m%d") <= now:
@@ -220,6 +236,7 @@ class MyClient(EClient):
             # Make the data request of 5 bars for the next period
             self.reqHistoricalData(reqId, contract, end_date_time, "5 D", "1 day",
                                    "MIDPOINT", 1, 1, False, [])
+            print("Inside request_data, self.wrapper.data_received:",  self.wrapper.data_received)
             time.sleep(3)  # Wait for 3 seconds before making another request
 
         print("Finished requesting data.")
@@ -254,7 +271,7 @@ def main():
         print("Example: python temp3.py 20230201 1 day")
         sys.exit(1)
     '''
-    approximate_start_date = "20230215"
+    approximate_start_date = "20230828"
     bar_size_string = "1 day"
 
     # Parse the bar size argument
@@ -305,6 +322,15 @@ def main():
     historical_data_thread = threading.Thread(target=client.historical_data_worker)
     historical_data_thread.start()
 
+
+    # with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+    #     executor.submit(client.historical_data_worker)
+    #client.historical_data_worker()
+    # historical_data_process = multiprocessing.Process(target=client.historical_data_worker)
+    # historical_data_process.start()
+
+    print("thread.star() in main")
+
     for contract, pair in majors:
         contract.symbol = pair[:3]
         contract.currency = pair[3:]
@@ -323,8 +349,14 @@ def main():
     #for contract, currency_pair in majors:
     #    currency_pair_folder = os.path.join(data_folder, f"{currency_pair[3:]}{currency_pair[:3]}")
     #    wrapper.check_data_order(currency_pair_folder)
+    historical_data_thread.join()
+    # historical_data_process.join()
     client.disconnect()
+    os.kill(os.getpid(), signal.SIGINT)
+    os.kill(os.getpid(), signal.SIGINT)
 
 
 if __name__ == "__main__":
     main()
+#    cProfile.run("main()", sort="cumulative")
+
