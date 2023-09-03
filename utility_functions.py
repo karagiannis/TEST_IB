@@ -9,11 +9,77 @@ from allowable_bar_sizes import allowable_bar_sizes
 import logging
 import time
 import re
+from ibapi.client import EClient
+from allowable_forex_pairs import allowable_forex_pairs
+from allowable_US_Stocks import allowable_US_Stocks
+from allowable_US_Bonds import allowable_US_Bonds
+from dateutil.parser import parse
+from settings import DEBUG
+
+# Rest of your code
+
+
 
 logging.basicConfig(filename='app.log', level=logging.DEBUG)
 
 
+def generate_update_list(top_directory: str):
+    logging.debug("inside generate_update_list function, fn_1")
+    collection_csv_file_paths = listAllCsvfilesPaths(top_directory)
+    logging.debug(f"Found {len(collection_csv_file_paths)} CSV files")
+    collection_need_of_update = []
+    six_months_ago = datetime_six_months_ago_NewYork_time()
+    last_friday = get_last_friday_date()
+    now = datetime_now_NewYork_time()
+
+    for csv_file_path in collection_csv_file_paths:
+        logging.debug(f"Processing CSV file: {csv_file_path}")
+        bar_size = bar_size_from_file_path(csv_file_path)
+        allowable_duration_in_bar_request = maximum_duration_time_when_requesting_bars(bar_size)
+        instrument = get_instrument_from_file_name(csv_file_path)
+        contract = get_contract_from_csv_file_path(csv_file_path)
+
+        if file_is_empty(csv_file_path):
+            start_datetime = six_months_ago
+        else:
+            last_saved_bar_datetime_str = last_OHLC_date_from_csv_file(csv_file_path)
+            last_saved_bar_datetime_str=transform_datetime_format(last_saved_bar_datetime_str)
+
+            eastern_tz = pytz.timezone('US/Eastern')
+            last_saved_bar_datetime = eastern_tz.localize(datetime.strptime(last_saved_bar_datetime_str, "%Y%m%d %H:%M:%S"))
+
+
+            start_datetime = last_saved_bar_datetime
+            end_datetime = next_datetime_for_bar_request(last_saved_bar_datetime, bar_size)
+
+        if todays_week_day() == 5 or todays_week_day() == 6:
+            end_datetime = last_friday
+        else:
+            end_datetime = now
+
+        actual_duration = (end_datetime-start_datetime).total_seconds()
+        logging.debug(f"Calculated actual_duration: {actual_duration}")
+        update_dict = {
+            'start_datetime': start_datetime,
+            'end_datetime': end_datetime,
+            'actual_duration':actual_duration,
+            "max_allowable_duration_look_back": get_duration_seconds_from_duration_str(\
+                maximum_duration_time_when_requesting_bars(bar_size)),
+            'contract': contract,
+            'instrument': instrument,
+            'bar_size': bar_size,
+            'max_duration': allowable_duration_in_bar_request,
+            'file_path': csv_file_path
+        }
+        logging.debug(f"Generated update_dict: {update_dict}")
+
+        collection_need_of_update.append(update_dict)
+    logging.debug("Completed generate_update_list function")
+    return collection_need_of_update
+
+
 def listAllCsvfilesPaths(top_directory):
+    logging.debug("Inside listAllCsvfilesPaths, fn_2")
     csv_filepath_collection = []  # Create an empty list to store file paths
     try:
         # Walk through the directory tree starting from 'top_directory'
@@ -32,18 +98,27 @@ def listAllCsvfilesPaths(top_directory):
     # Return the list of CSV file paths
     return csv_filepath_collection
 
+# we will return the date for the friday 6 months ago
+# with the hour of the end of the trading day
+def datetime_six_months_ago_NewYork_time():
+    logging.debug("Inside datetime_six_months_ago_NewYork_time(), fn_3 ")
+    eastern_tz = pytz.timezone('US/Eastern')
+    current_time = datetime.now(eastern_tz)
+    six_months_ago = current_time - timedelta(days=6 * 30)
+    while six_months_ago.weekday() != 4:
+        six_months_ago = six_months_ago + timedelta(days=1)
+        six_months_ago = six_months_ago.replace(hour=23, minute=59, second=59)  # replace works on the datetime object!
+    return six_months_ago  # 
 
-
-def file_is_empty(file_path):
-    try:
-        return os.path.getsize(file_path) == 0
-    except OSError as e:
-        logging.error(f"Error in file_is_empty while checking file size for '{file_path}': {e}")
-        return False
-
+def datetime_now_NewYork_time():
+    logging.debug("datetime_now_NewYork_time, fn_4")
+    eastern_tz = pytz.timezone('US/Eastern')
+    current_time = datetime.now(eastern_tz)
+    return current_time  # "20230723 15:15:00 US/Eastern"
 
 
 def bar_size_from_file_path(file_path):
+    logging.debug("bar_size_from_file_path, fn_5")
     filename = os.path.basename(file_path)
     match = re.search(r'_(.+?)\.csv', filename)
     if match:
@@ -52,102 +127,95 @@ def bar_size_from_file_path(file_path):
         return bar_size
     return None
 
-
-
 # How many bars is it allowed to grab for a certain bar_size translates
 # to the duration parameters. For instance for daily bars we are allowed
 # to set duration  to 1 year which is coded "1 Y"
 def maximum_duration_time_when_requesting_bars(bar_size: str):
+    logging.debug("Inside maximum_duration_time_when_requesting_bars, fn_6")
+    #print("Inside maximum_duration_time_when_requesting_bars, bar_size:", bar_size)
     if bar_size in allowable_bar_sizes:
         bar_size_seconds = allowable_bar_sizes[bar_size]
-    largest_duration = None
-    for duration, range_list in allowable_duration.items():
-        if range_list[0][0] <= bar_size_seconds:
-            largest_duration = duration
-    return largest_duration
-
-def minimum_duration_time_when_requesting_bars(bar_size: str):
-    if bar_size in allowable_bar_sizes:
-        bar_size_seconds = allowable_bar_sizes[bar_size]
-    min_duration = None
-    for duration, range_list in allowable_duration.items():
-        if range_list[0][1] >= bar_size_seconds:
-            min_duration = duration
-    return min_duration
-
-def get_duration_seconds_from_duration_str(duration_str):
-    if duration_str == "60 S":
-        return 60
-    elif duration_str == "120 S":
-        return 120
-    elif duration_str == "1800 S":
-        return 1800
-    elif duration_str == "3600 S":
-        return 3600
-    elif duration_str == "14400 S":
-        return 14400
-    elif duration_str == "28800 S":
-        return 28800  
-    elif duration_str == "1 D":
-        return 24 * 60 * 60
-    elif duration_str == "2 D":
-        return 2 * 24 * 60 * 60
-    elif duration_str == "1 W":
-        return 7 * 24 * 60 * 60
-    elif duration_str == "1 M":
-        return 30 * 24 * 60 * 60
-    elif duration_str == "1 Y":
-        return 365 * 24 * 60 * 60
-    
-def duration_to_duration_str(duration_seconds):
-    # Reverse parsing of the allowable_duration dictionary is 
-    # employed to handle cases where the provided duration in seconds
-    # does not align with a valid IB duration lookback. 
-    # This approach ensures accurate mapping of duration_str to duration_seconds, 
-    # preventing potential inconsistencies.
-    for duration_str, duration in reversed(allowable_duration.items()):
-        if duration[0][0] <= duration_seconds <= duration[0][1]:
-            return duration_str
-    raise ValueError("Invalid duration_seconds value inside duration_to_duration_str")
+        largest_duration = None
+        for duration, range_list in allowable_duration.items():
+            if range_list[0][0] <= bar_size_seconds:
+                largest_duration = duration
+        return largest_duration
+    else:
+        raise ValueError("Inside maximum_duration_time_when_requesting bars\
+                          - bar_size not in allowable bar_sizes")
 
 
-    
-def get_finer_granularity_duration_in_seconds(duration_str):
+
+# File name is for instance ./historical_data/forex/USDCAD/1_day/USDCAD_1_day.csv
+# We split at '/' then take the last part and then split again and take the zeroth part
+def get_instrument_from_file_name(file_path):
+    logging.debug("Inside get_instrument_from_file_name, fn_7")
+    # Extracting the base filename using os.path.basename
+    filename = os.path.basename(file_path)
+    # Splitting the filename by underscore and taking the first part
+    instrument = filename.split('_')[0]
+    return instrument  # Example: "EURUSD", "IBM"
 
 
-    # Step 1: Convert keys to a list
-    allowable_duration_keys = list(allowable_duration.keys())
+# When we update our data collection of csv-file of bar data
+ # we need to request new bar data for a specific contract say EURUSD
+# specifying the correct exchange IDEALPRO or SMART and indicate if it is
+# what kind of instrument class it is. Here we assume that in addition to our forex folder
+# ./historical_data/forex/USDCAD/1_day/USDCAD_1_day.csv
+# ./historical_data/forex/NZDUSD/1_day/NZDUSD_1_day.csv
+# we also have
+# ./historical_data/USStock/....
+# ./historical_data/USBond/....
+# with a similar structure
+def get_contract_from_csv_file_path(file_path):
+    logging.debug("Inside get_contract_from_csv_file_path, fn_8")
+    instrument_class = get_instrument_class_from_file_path(file_path)
+    contract = Contract()
+    if instrument_class == 'forex':
+        instrument = get_instrument_from_file_name(file_path)  # Example: 'EURUSD'
+        contract.symbol = instrument[:3]
+        contract.currency = instrument[3:]
+        contract.exchange = "IDEALPRO"
+        contract.secType = "CASH"  # Specify the security type
+    elif instrument_class == 'US_Stock':
+        contract.symbol = get_instrument_from_file_name(file_path)  # Example: 'IBM'
+        contract.secType = "STK"
+        contract.currency = "USD"
+        contract.exchange = "SMART"
+        contract.primaryExchange = "ARCA"
+    elif instrument_class == 'US_Bond':
+        contract.symbol = get_instrument_from_file_name(file_path)  # Example CUSP_id "912828C57"
+        contract.secType = "BOND"
+        contract.exchange = "SMART"
+        contract.currency = "USD"
 
-    # Step 2: Find index of max_duration key
-    max_duration_index = allowable_duration_keys.index(duration_str)
-
-    # Step 3: Get the key of the finer granularity duration
-    finer_granularity_key = allowable_duration_keys[max_duration_index - 1]
-
-    # Step 4: Retrieve finer granularity duration
-    finer_granularity_duration = allowable_duration[finer_granularity_key][0][1]
-
-    return finer_granularity_duration
-
-def get_finer_granularity_duration_as_string(duration_str):
+    return contract
 
 
-    # Step 1: Convert keys to a list
-    allowable_duration_keys = list(allowable_duration.keys())
+# We only have the folder "forex" but suppose
+# we also have ./historical_data/USStock/....
+# We need to know the type of the instrument because it determines which
+# exchange we are going to enter in Contract
+# Contract.exchange = "IDEALPRO" for Forex or
+# Contract.exchage = "SMART" for US Stock and ETFs
+def get_instrument_class_from_file_path(file_path):
+    logging.debug("get_instrument_class_from_file_path, fn_9")
+    instrument_class = file_path.split('/')[2]
+    return instrument_class  # Example "forex" or "USStock" or "USBond"
 
-    # Step 2: Find index of max_duration key
-    max_duration_index = allowable_duration_keys.index(duration_str)
-
-    # Step 3: Get the key of the finer granularity duration
-    finer_granularity_key = allowable_duration_keys[max_duration_index - 1]
 
 
-    return finer_granularity_key
-
-    
+def file_is_empty(file_path):
+    logging.debug("Inside file_is_empty, fn_10")
+    try:
+        return os.path.getsize(file_path) == 0
+    except OSError as e:
+        logging.error(f"Error in file_is_empty while checking file size for '{file_path}': {e}")
+        return False
 
 
 def last_OHLC_date_from_csv_file(file_path):
+    logging.debug("Inside last_OHLC_date_from_csv_file, fn_11")
     try:
         with open(file_path, "rb") as file:
             try:
@@ -176,114 +244,6 @@ def last_OHLC_date_from_csv_file(file_path):
     return timedate  # "2023-08-10 00:00:00.000000000"
 
 
-# IB outputs fake OHLC data for requests which include
-# bars longer back than 6 months in time and we need to filter out bars
-# with date 1970-01-01 00:00:00
-def clean_csv_file_from_fake_bars(file_path):
-    # Read the CSV file into a DataFrame
-    df = pd.read_csv(file_path)
-
-    # Filter out rows with dates starting with 1970
-    df = df[~df["Date"].str.startswith("1970-01-01 00:00:00")]
-
-    # Write back to the CSV file
-    try:
-        df.to_csv(file_path, index=False, encoding='utf-8')
-    except Exception as e:
-        print(f"Error occurred while creating and writing data to the CSV file: {str(e)}")
-
-
-# File name is for instance ./historical_data/forex/USDCAD/1_day/USDCAD_1_day.csv
-# We split at '/' then take the last part and then split again and take the zeroth part
-def get_instrument_from_file_name(file_path):
-    # Extracting the base filename using os.path.basename
-    filename = os.path.basename(file_path)
-    # Splitting the filename by underscore and taking the first part
-    instrument = filename.split('_')[0]
-    return instrument  # Example: "EURUSD", "IBM"
-
-
-# We only have the folder "forex" but suppose
-# we also have ./historical_data/USStock/....
-# We need to know the type of the instrument because it determines which
-# exchange we are going to enter in Contract
-# Contract.exchange = "IDEALPRO" for Forex or
-# Contract.exchage = "SMART" for US Stock and ETFs
-def get_instrument_class_from_file_path(file_path):
-    instrument_class = file_path.split('/')[2]
-    return instrument_class  # Example "forex" or "USStock" or "USBond"
-
-
-# When we update our data collection of csv-file of bar data
-# we need to request new bar data for a specific contract say EURUSD
-# specifying the correct exchange IDEALPRO or SMART and indicate if it is
-# what kind of instrument class it is. Here we assume that in addition to our forex folder
-# ./historical_data/forex/USDCAD/1_day/USDCAD_1_day.csv
-# ./historical_data/forex/NZDUSD/1_day/NZDUSD_1_day.csv
-# we also have
-# ./historical_data/USStock/....
-# ./historical_data/USBond/....
-# with a similar structure
-def get_contract_from_csv_file_path(file_path):
-    instrument_class = get_instrument_class_from_file_path(file_path)
-    contract = Contract()
-    if instrument_class == 'forex':
-        instrument = get_instrument_from_file_name(file_path)  # Example: 'EURUSD'
-        contract.symbol = instrument[:3]
-        contract.currency = instrument[3:]
-        contract.exchange = "IDEALPRO"
-        contract.secType = "CASH"  # Specify the security type
-    elif instrument_class == 'US_Stock':
-        contract.symbol = get_instrument_from_file_name(file_path)  # Example: 'IBM'
-        contract.secType = "STK"
-        contract.currency = "USD"
-        contract.exchange = "SMART"
-        contract.primaryExchange = "ARCA"
-    elif instrument_class == 'US_Bond':
-        contract.symbol = get_instrument_from_file_name(file_path)  # Example CUSP_id "912828C57"
-        contract.secType = "BOND"
-        contract.exchange = "SMART"
-        contract.currency = "USD"
-
-    return contract
-
-
-def todays_week_day():
-    eastern_tz = pytz.timezone('US/Eastern')
-    current_time = datetime.now(eastern_tz)
-    week_day = current_time.weekday()
-    return week_day  # Example 0 = Monday, 6=Friday
-
-
-def datetime_now_NewYork_time():
-    eastern_tz = pytz.timezone('US/Eastern')
-    current_time = datetime.now(eastern_tz)
-    return current_time  # "20230723 15:15:00 US/Eastern"
-
-
-# we will return the date for the friday 6 months ago
-# with the hour of the end of the trading day
-def datetime_six_months_ago_NewYork_time():
-    eastern_tz = pytz.timezone('US/Eastern')
-    current_time = datetime.now(eastern_tz)
-    six_months_ago = current_time - timedelta(days=6 * 30)
-    while six_months_ago.weekday() != 4:
-        six_months_ago = six_months_ago + timedelta(days=1)
-        six_months_ago = six_months_ago.replace(hour=23, minute=59, second=59)  # replace works on the datetime object!
-    return six_months_ago  # 
-
-
-def get_last_friday_date():
-    eastern_tz = pytz.timezone('US/Eastern')
-    current_time = datetime.now(eastern_tz)
-    temp = current_time
-    while temp.weekday() != 4:
-        temp = temp - timedelta(days=1)
-    temp = temp.replace(hour=23, minute=59, second=59)
-    return temp
-
-
-
 
 # Here we assume that we have made a maximum duration request for a particular
 # bar_size and we must take into account the max duration to calculate a
@@ -292,6 +252,7 @@ def get_last_friday_date():
 # end_date_time = duration + start_time, where start_time is
 # the end_time of the previous request
 def next_datetime_for_bar_request(end_datetime, bar_size):
+    logging.debug("Inside next_datetime_for_bar_request, fn_12")
     eastern_tz = pytz.timezone('US/Eastern')
     current_time = datetime.now(eastern_tz)
     duration = maximum_duration_time_when_requesting_bars(bar_size)
@@ -330,212 +291,523 @@ def next_datetime_for_bar_request(end_datetime, bar_size):
         return new_end_time  # Example: "20230223 15:15:00 US/Eastern" to be used in request_date with a duration (backwards)
 
 
-def generate_update_list(top_directory: str):
-    logging.debug("Starting generate_update_list function")
-    collection_csv_file_paths = listAllCsvfilesPaths(top_directory)
-    logging.debug(f"Found {len(collection_csv_file_paths)} CSV files")
-    collection_need_of_update = []
-    six_months_ago = datetime_six_months_ago_NewYork_time()
-    last_friday = get_last_friday_date()
-    now = datetime_now_NewYork_time()
 
-    for csv_file_path in collection_csv_file_paths:
-        logging.debug(f"Processing CSV file: {csv_file_path}")
-        bar_size = bar_size_from_file_path(csv_file_path)
-        allowable_duration_in_bar_request = maximum_duration_time_when_requesting_bars(bar_size)
-        instrument = get_instrument_from_file_name(csv_file_path)
-        contract = get_contract_from_csv_file_path(csv_file_path)
+def todays_week_day():
+    logging.debug("Inside todays_week_day, fn_13")
+    eastern_tz = pytz.timezone('US/Eastern')
+    current_time = datetime.now(eastern_tz)
+    week_day = current_time.weekday()
+    return week_day  # Example 0 = Monday, 6=Friday
 
-        if file_is_empty(csv_file_path):
-            start_datetime = six_months_ago
-        else:
-            last_saved_bar_datetime_str = last_OHLC_date_from_csv_file(csv_file_path)
-            last_saved_bar_datetime_str=last_saved_bar_datetime_str.split('.')[0]
+def get_duration_seconds_from_duration_str(duration_str):
+    logging.debug("inside get_duration_seconds_from_duration_str, fn_14")
+    if duration_str == "60 S":
+        return 60
+    elif duration_str == "120 S":
+        return 120
+    elif duration_str == "1800 S":
+        return 1800
+    elif duration_str == "3600 S":
+        return 3600
+    elif duration_str == "14400 S":
+        return 14400
+    elif duration_str == "28800 S":
+        return 28800  
+    elif duration_str == "1 D":
+        return 24 * 60 * 60
+    elif duration_str == "2 D":
+        return 2 * 24 * 60 * 60
+    elif duration_str == "1 W":
+        return 7 * 24 * 60 * 60
+    elif duration_str == "1 M":
+        return 30 * 24 * 60 * 60
+    elif duration_str == "1 Y":
+        return 365 * 24 * 60 * 60
+    
 
-            eastern_tz = pytz.timezone('US/Eastern')
-            last_saved_bar_datetime = eastern_tz.localize(datetime.strptime(last_saved_bar_datetime_str, "%Y-%m-%d %H:%M:%S"))
-            start_datetime = last_saved_bar_datetime
-            end_datetime = next_datetime_for_bar_request(last_saved_bar_datetime, bar_size)
-
-        if todays_week_day() == 5 or todays_week_day() == 6:
-            end_datetime = last_friday
-        else:
-            end_datetime = now
-
-        actual_duration = (end_datetime-start_datetime).total_seconds()
-        logging.debug(f"Calculated actual_duration: {actual_duration}")
-        update_dict = {
-            'start_datetime': start_datetime,
-            'end_datetime': end_datetime,
-            'actual_duration':actual_duration,
-            "max_allowable_duration_look_back": get_duration_seconds_from_duration_str(\
-                maximum_duration_time_when_requesting_bars(bar_size)),
-            'contract': contract,
-            'instrument': instrument,
-            'bar_size': bar_size,
-            'max_duration': allowable_duration_in_bar_request,
-            'file_path': csv_file_path
-        }
-        logging.debug(f"Generated update_dict: {update_dict}")
-
-        collection_need_of_update.append(update_dict)
-    logging.debug("Completed generate_update_list function")
-    return collection_need_of_update
+def generate_request_list(collection_list):
+    logging.debug("Inside generate_request_list, fn_15")
+    request_list = []
+    for record in collection_list:
+        chunks = divide_time_range(record['start_datetime'], record['end_datetime'],  record['bar_size'])
+        for chunk in chunks:
+            dict = {
+                'end_datetime': chunk["chunk_end"],
+                'contract': record['contract'],
+                'instrument': record['instrument'],
+                'bar_size': record['bar_size'],
+                'max_duration': chunk["chunk_duration_str"],
+            }
+            request_list.append(dict)
+    return request_list
 
 
 
 def divide_time_range(start_datetime: datetime, end_datetime: datetime, bar_size: str):
-    logging.debug("Starting divide_time_range function")
+    logging.debug("Inside divide_time_range function, fn_16")
 
     # Calculate the total duration of the requested time range
     total_duration = (end_datetime - start_datetime).total_seconds()
 
     # Get the maximum allowed duration lookback from IB based on bar size
     restricted_duration_str = maximum_duration_time_when_requesting_bars(bar_size)
-    logging.debug(f"Maximum allowed duration lookback acquired from Interactive Brokers: {restricted_duration_str}")
 
     # Convert the maximum allowed duration to seconds
     restricted_duration = get_duration_seconds_from_duration_str(restricted_duration_str)
-    logging.debug(f"Maximum allowed duration lookback in seconds: {restricted_duration}")
+
 
     # Initialize the list to store duration lookback requests
     duration_lookback_request_list = []
 
     # Check if the total duration is greater than or equal to the maximum allowed duration
     if total_duration >= restricted_duration:
-        logging.debug("Total duration is greater than or equal to the restricted duration")
         duration_lookback_request_list.append(restricted_duration_str)
-        reminder_for_finer_duration = total_duration - restricted_duration
-        new_total_duration = total_duration
+        time_reminder = total_duration - restricted_duration
     else:
-        # If total duration is less than restricted duration, set initial values for the loop
-        #We are priming reminder_for_finer_duration for the beginning of the while loop
-        reminder_for_finer_duration_str = duration_to_duration_str(total_duration)
-        reminder_for_finer_duration = get_duration_seconds_from_duration_str(reminder_for_finer_duration_str)
 
-        new_total_duration = total_duration
+        current_duration_str = get_first_duration_reminder(total_duration)
+        duration_lookback_request_list.append(current_duration_str)
+        current_duration = get_duration_seconds_from_duration_str(current_duration_str)
+        time_reminder = total_duration-current_duration
 
     # Get the minimum duration for the specified bar size
-    min_duration_for_barsize = get_duration_seconds_from_duration_str(minimum_duration_time_when_requesting_bars(bar_size))
+    min_duration_str = minimum_duration_str_when_requesting_bars(bar_size)
+    min_duration_for_barsize_sec = get_duration_seconds_from_duration_str(min_duration_str)
+
+    # print("bar_size:", bar_size)
+    # print("min_duration_str:", min_duration_str)
+    # print("min_duration_for_barsize_sec:", min_duration_for_barsize_sec)
 
     # Continue until the reminder becomes smaller than the minimum duration for the specified bar size
-    while not (reminder_for_finer_duration < min_duration_for_barsize):
-
-        finer_granularity_duration = reminder_for_finer_duration
-        finer_granularity_duration_str = duration_to_duration_str(finer_granularity_duration)
-        # Calculate the number of divisions of the current duration
-        num_divisions_of_current_duration = int(new_total_duration / finer_granularity_duration)
-        print("num_divisions_of_current_duration:",num_divisions_of_current_duration)
-
-        # Calculate the reminder for finer duration
-        reminder_for_finer_duration = new_total_duration % finer_granularity_duration
-
-        # Check if divisions are possible without a reminder
-        if reminder_for_finer_duration == 0:
-            for division_index in range(num_divisions_of_current_duration):
-                duration_lookback_request_list.append(finer_granularity_duration_str)
-            break
-
-        # Check if divisions are possible with a reminder
-        elif reminder_for_finer_duration != 0:
-            for division_index in range(num_divisions_of_current_duration):
-                duration_lookback_request_list.append(finer_granularity_duration_str)
-            # Get the next finer granularity duration and update values
-            new_total_duration = reminder_for_finer_duration
-            finer_granularity_duration_str = get_finer_granularity_duration_as_string(finer_granularity_duration_str)
-            logging.debug(f"Next allowed duration lookback is: {finer_granularity_duration_str}")
-            finer_granularity_duration = get_duration_seconds_from_duration_str(finer_granularity_duration_str)
-            logging.debug(f"Next allowed duration lookback is (in sec): {finer_granularity_duration}")
-            # If finer granularity becomes smaller than the minimum duration, add the minimum duration and exit
-            if finer_granularity_duration < min_duration_for_barsize:
-                duration_lookback_request_list.append(minimum_duration_time_when_requesting_bars(bar_size))
-                break
+    search_ended = False
+    while not search_ended:
+        if time_reminder > min_duration_for_barsize_sec:
+            current_duration_str = get_first_duration_reminder(time_reminder)
+            current_duration = get_duration_seconds_from_duration_str(current_duration_str)
+            duration_lookback_request_list.append(current_duration_str)
+            time_reminder -= current_duration
+        else:
+            duration_lookback_request_list.append(current_duration_str)
+            search_ended = True
 
     # Initialize the list to store chunks of time
     chunks = []
     chunk_end = end_datetime
-    chunk ={}
+
+    # print("start_datetime,end_datetime:",start_datetime,end_datetime)
     # Construct chunks by going backwards in time using duration lookback requests
     for duration_str in duration_lookback_request_list:
+        chunk = {}
         duration = get_duration_seconds_from_duration_str(duration_str)
         chunk_start = chunk_end - timedelta(seconds=duration)
         chunk['chunk_start']=chunk_start
+        # print("chunk_start:",chunk_start)
         chunk['chunk_end']=chunk_end
+        # print("chunk_end:",chunk_end)
         chunk['chunk_duration_str']=duration_str
+        # print("duration_str:",duration_str)
         chunk['chunk_duration']=duration
         chunks.append(chunk)
         chunk_end = chunk_start
-
+    # print("****************************************")
     return chunks
 
 
-def generate_request_list(collection_list):
-    request_list = []
-    for start_datetime, end_datetime, contract, instrument, bar_size, max_duration, file_path in collection_list.item():
-        total_duration = end_datetime - start_datetime
-        chunks = divide_time_range(end_datetime, bar_size, total_duration)
-        for chunk in chunks:
-            dict = {
-                'start_datetime': chunk[0],
-                'end_datetime': chunk[1],
-                'contract': contract,
-                'instrument': instrument,
-                'bar_size': bar_size,
-                'max_duration': max_duration,
-                'file_path': file_path
-            }
-            request_list.append(dict)
-    return request_list
+def get_first_duration_reminder(duration_reminder):
+    logging.debug("Inside get_first_duration_reminder, fn_17")
+    #print("duration_reminder:", duration_reminder)
+    duration_list = list(allowable_duration.items())
+    #print("duration_list:", duration_list)
+    list_index = 0
+    for index, (duration_str, duration) in enumerate(allowable_duration.items()):
+        if duration[0][0] <= duration_reminder <= duration[0][1]:
+            list_index = index
+            break
+    #print("duration_list[list_index -1][0]", duration_list[list_index -1][0])
+    return duration_list[list_index-1][0]
+
+def minimum_duration_str_when_requesting_bars(bar_size: str):
+    logging.debug(" inside minimum_duration_time_when_requesting_bars, fn_18")
+    min_duration = None  # Initialize min_duration to None
+    
+    if bar_size in allowable_bar_sizes:
+        bar_size_seconds = allowable_bar_sizes[bar_size]
+        if bar_size_seconds == 30:
+            min_duration = "1800 S"
+        elif bar_size_seconds == 120:
+            min_duration = "1800 S"
+        elif bar_size_seconds == 180:
+            min_duration = "1800 S"
+        elif bar_size_seconds == 300:
+            min_duration = "1800 S"
+        elif bar_size_seconds == 600:
+            min_duration = "14400 S" 
+        elif bar_size_seconds == 900:
+            min_duration = "14400 S"
+        elif bar_size_seconds == 1200:
+            min_duration = "14400 S"    
+        elif bar_size_seconds == 1800:
+            min_duration = "28800 S"
+        elif bar_size_seconds == 3600:
+            min_duration = "1 D"
+        elif bar_size_seconds == 7200:
+            min_duration = "1 D"
+        elif bar_size_seconds == 3*60*60:
+            min_duration = "1 D"
+        elif bar_size_seconds == 4*60*60:
+            min_duration = "1 W"
+        elif bar_size_seconds == 8*60*60:
+            min_duration = "1 W"
+        elif bar_size_seconds == 24*60*60:
+            min_duration = "1 W"
+        elif bar_size_seconds == 24*7*60*60:
+            min_duration = "1 M"
+        elif bar_size_seconds == 24*30*60*60:
+            min_duration = "1 Y"
+        else:
+            raise ValueError("Invalid bar_size_seconds: " + str(bar_size_seconds))
+    else:
+        raise ValueError("Invalid bar_size: " + bar_size)
+
+    return min_duration
 
 
-# Define time_periods
-time_periods = []
 
 
-import time
+    
 
-def make_data_requests(request_list):
+def make_data_requests(request_list, client=None):
+    if DEBUG:
+        print("Inside make_data_requests")  
+    logging.debug("Inside make_data_requests, fn_19")
     num_requests = len(request_list)
+
     request_index = 0
-    pacing_request_limit = 60
     pacing_window_seconds = 600  # 10 minutes
-    wait_time_between_requests = 3  # seconds
+    wait_time_between_requests = 3  # 3 seconds
+    if DEBUG:
+        pacing_window_seconds = 1  
+        wait_time_between_requests = 0.1 
 
-    while request_index < num_requests:
+    done = False
+    if DEBUG:
+        print("num_requests:", num_requests)
+    while (request_index < num_requests) and not done:
+        #Start timer for max 60 request with 10 mins
+        datetime_at_600sec = datetime.now() + timedelta(seconds=pacing_window_seconds)
+        if DEBUG:
+            print ("datetime_at_600sec:",datetime_at_600sec)
+
         requests_remaining = num_requests - request_index
+        #if there are requests remaining...
+        if requests_remaining !=0:
 
-        # Determine the number of requests to execute in this iteration
-        num_to_execute = min(requests_remaining, pacing_request_limit)
+            # Determine the number of requests to execute in this iteration
+            sub_counter = 0
 
-        for i in range(num_to_execute):
-            request = request_list[request_index]
-            request_data(request['contract'], request['instrument'], request['start_datetime'],
-                         request['end_datetime'], request['max_duration'], request['bar_size'])
-            request_index += 1
-            # Wait for the specified time between requests
-            if i < num_to_execute - 1:
-                time.sleep(wait_time_between_requests)
+            #if sub counter for requests is less than 60
+            while sub_counter < 60:
 
-        # Wait for the remaining time within the pacing window
-        if requests_remaining > pacing_request_limit:
-            elapsed_time = time.time() - request_list[request_index - 1]['timestamp']
-            remaining_time = pacing_window_seconds - elapsed_time
-            if remaining_time > 0:
-                time.sleep(remaining_time)
+                #if 60 requests haven't been done yet within 600 seconds..
+                if (datetime_at_600sec-datetime.now()).total_seconds() > 1:
+                    if request_index < num_requests:
+                        request = request_list[request_index]
+                        if DEBUG:
+                            print("Calling request_data dummy function")  # Add this line for debugging
+                        #the following function call will actually be
+                        #client.request_data when used
+                        if client != None:
+                            client.request_data(request['contract'], request['instrument'],
+                                    request['end_datetime'], request['max_duration'], request['bar_size'])
+                        else:
+                            formatted_end_datetime = request['end_datetime'].strftime('%Y%m%d %H:%M:%S') + ' US/Eastern'
+                            request_data(request['contract'], request['instrument'],
+                                    formatted_end_datetime, request['max_duration'], request['bar_size'])
+                        request_index += 1
+                        sub_counter += 1
+
+                        if DEBUG:
+                            print("Request made for:", request['instrument'])
+                            print("request_index:", request_index)
+                            print("sub_counter:", sub_counter)
+                        # Wait for the specified time between requests
+                        if sub_counter < 60:
+                            time.sleep(wait_time_between_requests)
+                        else:
+                            #We have done 60 requests and should sleep the remaining 10 min period
+                            wait_time = max((datetime_at_600sec-datetime.now()).total_seconds(),0)
+                            time.sleep(wait_time)
+                            sub_counter = 0
+                            break
+                    else:
+                        done = True
+                        break
+
+                else: #We have not done 60 request but 600 seconds have passed
+                    continue
+            
+            #We have done 60 requests and must wait the remaining time
+            wait_time = max((datetime_at_600sec-datetime.now()).total_seconds(),0)
+            time.sleep(wait_time)
+            
+        else: #there are no more requests records in the list
+            break
+
+
+def get_last_friday_date():
+    logging.debug("Inside get_last_friday_date,fn_20")
+    eastern_tz = pytz.timezone('US/Eastern')
+    current_time = datetime.now(eastern_tz)
+    temp = current_time
+    while temp.weekday() != 4:
+        temp = temp - timedelta(days=1)
+    temp = temp.replace(hour=23, minute=59, second=59)
+    return temp
+
+def save_data_to_csv(contract_map, reqId, bar_size):
+    logging.debug("Inside save_data_to_csv, fn_21")
+
+    if DEBUG:
+        print("Inside save_data_to_csv, bar_size = ", bar_size)
+
+    forex_instrument = False
+    us_stock_instrument = False
+    us_bond_instrument = False
+
+    contract = contract_map[reqId]['contract']
+    forex_pair = f"{contract.symbol}{contract.currency}"
+    other_instrument = f"{contract.symbol}"
+
+    instrument = None
+    top_folder = "./historical_data"
+    if DEBUG:
+        top_folder = "./temp_historical_data"
+    
+    if forex_pair in allowable_forex_pairs:
+        data_folder = top_folder+"/forex"
+        forex_instrument = True
+        instrument = forex_pair
+        
+    elif other_instrument in allowable_US_Stocks:
+        data_folder = top_folder +"/US_Stocks"
+        us_stock_instrument = True
+        instrument = other_instrument
+    elif other_instrument in allowable_US_Bonds:
+        data_folder = top_folder+ "US_Bonds"
+        us_bond_instrument = True
+        instrument = other_instrument
+    else:
+        raise ValueError("Inside save_data_to_csv")
+
+
+
+    # Create the data folder if it doesn't exist
+    os.makedirs(data_folder, exist_ok=True)
+
+
+    bar_size_folder_name = bar_size.replace(" ", "_")
+    bar_size_filename = bar_size.replace(" ", "_")
+
+    # Create the folder path for the specific currency pair
+    instrument_folder = os.path.join(data_folder, f"{instrument}/{ bar_size_folder_name}")
+
+    # Create the currency pair folder if it doesn't exist
+    os.makedirs(instrument_folder, exist_ok=True)
+    # Replace space with underscore in bar_size for folder and filename
+
+
+   # Get the bar duration from the allowable_bar_sizes dictionary
+    bar_duration = allowable_bar_sizes.get(bar_size)
+    if bar_duration is None:
+        print("bar_size:", bar_size)
+        raise ValueError("Inside save_data_to_csv. Valid bar_size not found")
+
+    # Add the bar size suffix to the filename
+    filename_with_suffix = f"{instrument}_{bar_size_filename}.csv"
+
+    # Create the complete file path for the CSV file
+    file_path = os.path.join(instrument_folder, filename_with_suffix)
+
+
+    # Check if the file already exists
+    if os.path.exists(file_path):
+        try:
+            existing_data = pd.read_csv(file_path)
+
+            if existing_data.empty:
+                # Create a new file and write the data
+                with open(file_path, mode='w', newline='') as file:
+                    writer = csv.writer(file)
+                    writer.writerow(['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
+                    for data_point in contract_map[reqId]['data']:
+                        writer.writerow([data_point.date, data_point.open, data_point.high, data_point.low,
+                                         data_point.close, data_point.volume])
+                
+            else:
+                # File is not empty, continue with appending data
+                existing_data['Date'] = pd.to_datetime(existing_data['Date'])
+                new_data = pd.DataFrame([
+                    [pd.to_datetime(data_point.date), data_point.open, data_point.high, data_point.low,
+                    data_point.close, data_point.volume]
+                    for data_point in contract_map[reqId]['data']
+                ], columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
+
+                combined_data = pd.concat([existing_data, new_data])
+                combined_data.drop_duplicates(subset=['Date'], keep='first', inplace=True)
+                combined_data.sort_values(by='Date', inplace=True)
+                combined_data.to_csv(file_path, index=False)
+
+        except Exception as e:
+            print(f"Error occurred while appending data to existing CSV file: {str(e)}\
+                  for {instrument}")
+    else:
+        if DEBUG:
+            print("Inside save_data_to_csv, trying to create csv-file because none existed")
+        try:
+            # Create a new file and write the data
+            with open(file_path, mode='w', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow(['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
+                for data_point in contract_map[reqId]['data']:
+                    writer.writerow([data_point.date, data_point.open, data_point.high, data_point.low,
+                                    data_point.close, data_point.volume])
+        except Exception as e:
+            print(f"Error occurred while creating and writing data to the CSV file: {str(e)}")
+
+
+def get_bar_size_str_from_bar_size_sec(bar_size):
+    logging.debug("Inside bar_size_str_from_bar_size_sec")
+    #print("Inside bar_size_str_from_bar_size_sec, bar_size: ", bar_size)
+    for bar_size_str, bar_size_sec in allowable_bar_sizes.items():
+        if bar_size_sec == bar_size:
+            return bar_size_str
+        else:
+            raise ValueError("Inside get_bar_size_seconds_from_bar_size_str")
+        
+
+
+
+def duration_to_duration_str(duration_seconds):
+    logging.debug("Inside duration_to_duration_str ")
+    # Reverse parsing of the allowable_duration dictionary is 
+    # employed to handle cases where the provided duration in seconds
+    # does not align with a valid IB duration lookback. 
+    # This approach ensures accurate mapping of duration_str to duration_seconds, 
+    # preventing potential inconsistencies.
+    for duration_str, duration in reversed(allowable_duration.items()):
+        if duration[0][0] <= duration_seconds <= duration[0][1]:
+            return duration_str
+    raise ValueError("Invalid duration_seconds value inside duration_to_duration_str")
+
+
+
+def transform_datetime_format(datetime_str):
+    # Remove "US/Eastern" (timezone part) if present
+    datetime_str = re.sub(r' US/Eastern', '', datetime_str)
+    # Remove excessive zeros in decimals and decimal separator
+    datetime_str = re.sub(r'\.\d+', '', datetime_str)
+    # Remove '-' character
+    datetime_str = datetime_str.replace('-', '')
+    #print("Inside transform_datetime_format,datetime_str:", datetime_str)
+
+    return datetime_str
+
+
+def parse_datetime(datetime_str, format_str):
+    #print("Inside parse_datetime, datetime_str, format_str:",datetime_str,format_str)
+    return datetime.strptime(datetime_str, format_str)
+
+def format_datetime(dt):
+    #print("Inside format_datetime, dt:",dt)
+    #print("Inside format_datetime, dt.strftime:",dt.strftime("%Y%m%d %H:%M:%S"))
+    return dt.strftime("%Y%m%d %H:%M:%S")
+
+
+    
+# def get_finer_granularity_duration_in_seconds(duration_str):
+
+#     logging.debug("Inside get_finer_granularity_duration_in_seconds")
+#     # Step 1: Convert keys to a list
+#     allowable_duration_keys = list(allowable_duration.keys())
+
+#     # Step 2: Find index of max_duration key
+#     max_duration_index = allowable_duration_keys.index(duration_str)
+
+#     # Step 3: Get the key of the finer granularity duration
+#     finer_granularity_key = allowable_duration_keys[max_duration_index - 1]
+
+#     # Step 4: Retrieve finer granularity duration
+#     finer_granularity_duration = allowable_duration[finer_granularity_key][0][1]
+
+#     return finer_granularity_duration
+
+# def get_finer_granularity_duration_as_string(duration_str):
+
+
+#     # Step 1: Convert keys to a list
+#     allowable_duration_keys = list(allowable_duration.keys())
+
+#     # Step 2: Find index of max_duration key
+#     max_duration_index = allowable_duration_keys.index(duration_str)
+
+#     # Step 3: Get the key of the finer granularity duration
+#     finer_granularity_key = allowable_duration_keys[max_duration_index - 1]
+
+
+#     return finer_granularity_key
+
+    
+
+
+
+# IB outputs fake OHLC data for requests which include
+# bars longer back than 6 months in time and we need to filter out bars
+# with date 1970-01-01 00:00:00
+def clean_csv_file_from_fake_bars(file_path):
+    logging.debug("Inside clean_csv_file_from_fake_bars")
+    # Read the CSV file into a DataFrame
+    df = pd.read_csv(file_path)
+
+    # Filter out rows with dates starting with 1970
+    df = df[~df["Date"].str.startswith("1970-01-01 00:00:00")]
+
+    # Write back to the CSV file
+    try:
+        df.to_csv(file_path, index=False, encoding='utf-8')
+    except Exception as e:
+        print(f"Error occurred while creating and writing data to the CSV file: {str(e)}")
 
 
 
 
-def request_data(contract, instrument, start_datetime, end_datetime,
-                 allowable_duration_in_bar_request, bar_size):
-    print("contract: ", contract)
-    print("instrument: ", instrument)
-    print("start_datetime: ", start_datetime)
-    print("end_datetime: ", end_datetime)
-    print("allowable_duration_in_bar_request: ", allowable_duration_in_bar_request)
-    print("bar_size: ", bar_size)
 
-    return None
+
+
+request_counter = 0
+def request_data(contract, instrument, end_datetime, duration, bar_size):
+        logging.debug("Inside request_data")
+        global request_counter
+        print("contract: ", contract)
+        print("instrument: ", instrument)
+        print("end_datetime: ", end_datetime)
+        print("duration: ", duration)
+        print("bar_size: ", bar_size)
+
+        request_counter += 1
+        datetime_now = datetime.now()
+        try:
+            with open("./test.csv", "a") as file:
+                writer = csv.writer(file)
+                if request_counter == 1:  # Only write header for the first request
+                    writer.writerow(['Request_number', 'Time of request', 'instrument', 'end_datetime', 'duration', 'bar_size'])
+                writer.writerow([request_counter, datetime_now, instrument, end_datetime, duration, bar_size])
+        except Exception as e:
+            # Handle the exception if needed
+            print(f"Error occurred: {str(e)}")
+
+        return None
+
+
 
 
 def main():
