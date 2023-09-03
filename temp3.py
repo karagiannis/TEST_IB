@@ -272,7 +272,7 @@ def main():
         sys.exit(1)
     '''
     approximate_start_date = "20230828"
-    bar_size_string = "1 day"
+    bar_size_string = "5 mins"
 
     # Parse the bar size argument
     bar_size_parts = bar_size_string.split()
@@ -349,11 +349,12 @@ def main():
     #for contract, currency_pair in majors:
     #    currency_pair_folder = os.path.join(data_folder, f"{currency_pair[3:]}{currency_pair[:3]}")
     #    wrapper.check_data_order(currency_pair_folder)
-    historical_data_thread.join()
-    # historical_data_process.join()
+    
     client.disconnect()
-    os.kill(os.getpid(), signal.SIGINT)
-    os.kill(os.getpid(), signal.SIGINT)
+    historical_data_thread.join()
+    client.keyboardInterruptHard()
+    # historical_data_process.join()
+    
 
 
 if __name__ == "__main__":

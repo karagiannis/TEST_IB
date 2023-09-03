@@ -60,16 +60,16 @@ class MyClient(EClient):
         """
         Worker function for running the client event loop in a separate thread.
         """
-        while not self.wrapper.data_received:  # Use 'self.wrapper.data_received' to access the instance variable
+        if not self.wrapper.data_received:  # Use 'self.wrapper.data_received' to access the instance variable
             self.run()  # Process IB messages
             time.sleep(0.1)
             # Wait for the historical data thread to complete
-        historical_data_thread.join()
+        
 
     def request_data(self, contract, instrument, end_datetime, duration, bar_size):
         global reqId
         global bar_size_str
-
+        bar_size_str = bar_size
         reqId += 1
         self.wrapper.contract_map[reqId] = {'data': [], 'contract': contract}
 
@@ -80,22 +80,8 @@ class MyClient(EClient):
             f"from {(end_datetime - datetime.timedelta(seconds=duration_sec)).strftime('%Y%m%d %H:%M:%S')} to "
             f"{formatted_end_datetime} with a bar size {bar_size}.")
 
-        if self.first_request: 
-            bar_size_str = bar_size
-            self.wrapper.data_received = False 
-            self.reqHistoricalData(reqId, contract, formatted_end_datetime, duration, bar_size,
-                                    "MIDPOINT", 1, 1, False, [])
-            self.first_request = False
-        else:
-            while not self.wrapper.data_received:
-                continue
-            bar_size_str = bar_size
-            self.wrapper.data_received = False 
-            self.reqHistoricalData(reqId, contract, formatted_end_datetime, duration, bar_size,
-                                    "MIDPOINT", 1, 1, False, [])
-            
-
-
+        self.reqHistoricalData(reqId, contract, formatted_end_datetime, duration, bar_size,
+                                "MIDPOINT", 1, 1, False, [])
 
         print("Finished requesting data.")
 
@@ -129,9 +115,9 @@ def main():
     utility_functions.make_data_requests(request_list,client)
 
     
-    
     client.disconnect()
-
+    historical_data_thread.join()
+    client.keyboardInterruptHard()
 
 if __name__ == "__main__":
     main()
