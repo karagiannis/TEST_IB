@@ -474,55 +474,47 @@ def minimum_duration_str_when_requesting_bars(bar_size: str):
 
 
 
-    
+
 
 def make_data_requests(request_list, client=None):
     if DEBUG:
-        print("Inside make_data_requests")  
+        print("Inside make_data_requests")
     logging.debug("Inside make_data_requests, fn_19")
     num_requests = len(request_list)
 
     request_index = 0
     pacing_window_seconds = 600  # 10 minutes
     wait_time_between_requests = 3  # 3 seconds
+    pacing_elapsed_time = 0.0
     if DEBUG:
-        pacing_window_seconds = 1  
-        wait_time_between_requests = 0.1 
+        pacing_window_seconds = 5
+        wait_time_between_requests = 1
 
     done = False
     if DEBUG:
         print("num_requests:", num_requests)
+
     while (request_index < num_requests) and not done:
-        #Start timer for max 60 request with 10 mins
-        datetime_at_600sec = datetime.now() + timedelta(seconds=pacing_window_seconds)
+        sub_counter = 0
+        pacing_start_time = time.time()
         if DEBUG:
-            print ("datetime_at_600sec:",datetime_at_600sec)
+            print("pacing_start_time:", pacing_start_time)
 
-        requests_remaining = num_requests - request_index
-        #if there are requests remaining...
-        if requests_remaining !=0:
-
-            # Determine the number of requests to execute in this iteration
-            sub_counter = 0
-
-            #if sub counter for requests is less than 60
-            while sub_counter < 60:
-
-                #if 60 requests haven't been done yet within 600 seconds..
-                if (datetime_at_600sec-datetime.now()).total_seconds() > 1:
+        while request_index < num_requests:
+            while pacing_elapsed_time < pacing_window_seconds:
+                while sub_counter < 60:
                     if request_index < num_requests:
+                        print("Entering the if request_index < num_requests block")
                         request = request_list[request_index]
                         if DEBUG:
-                            print("Calling request_data dummy function")  # Add this line for debugging
-                        #the following function call will actually be
-                        #client.request_data when used
-                        if client != None:
+                            print("Calling request_data dummy function")
+                        if client is not None:
                             client.request_data(request['contract'], request['instrument'],
-                                    request['end_datetime'], request['max_duration'], request['bar_size'])
+                                                request['end_datetime'], request['max_duration'], request['bar_size'])
                         else:
                             formatted_end_datetime = request['end_datetime'].strftime('%Y%m%d %H:%M:%S') + ' US/Eastern'
                             request_data(request['contract'], request['instrument'],
-                                    formatted_end_datetime, request['max_duration'], request['bar_size'])
+                                        formatted_end_datetime, request['max_duration'], request['bar_size'])
                         request_index += 1
                         sub_counter += 1
 
@@ -530,28 +522,30 @@ def make_data_requests(request_list, client=None):
                             print("Request made for:", request['instrument'])
                             print("request_index:", request_index)
                             print("sub_counter:", sub_counter)
-                        # Wait for the specified time between requests
-                        if sub_counter < 60:
-                            time.sleep(wait_time_between_requests)
-                        else:
-                            #We have done 60 requests and should sleep the remaining 10 min period
-                            wait_time = max((datetime_at_600sec-datetime.now()).total_seconds(),0)
-                            time.sleep(wait_time)
-                            sub_counter = 0
-                            break
                     else:
                         done = True
                         break
 
-                else: #We have not done 60 request but 600 seconds have passed
-                    continue
-            
-            #We have done 60 requests and must wait the remaining time
-            wait_time = max((datetime_at_600sec-datetime.now()).total_seconds(),0)
-            time.sleep(wait_time)
-            
-        else: #there are no more requests records in the list
-            break
+                if done:
+                    break
+
+                pacing_elapsed_time = time.time() - pacing_start_time
+                remaining_wait_time = max(pacing_window_seconds - pacing_elapsed_time, 0)
+
+                if sub_counter < 60:
+                    time.sleep(wait_time_between_requests)
+                    break
+                else:
+                    sub_counter = 0
+                    break
+
+            if done:
+                break
+            else:
+                pacing_elapsed_time = 0  # Reset pacing elapsed time for a new frame
+                break
+        else:
+            done = True
 
 
 def get_last_friday_date():
