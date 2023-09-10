@@ -15,6 +15,7 @@ import cProfile
 import signal
 # import concurrent.futures
 # import multiprocessing
+from dateutil.parser import parse
 
 
 global_bar_size = None  # Initialize the global_bar_size variable
@@ -29,6 +30,7 @@ class MyWrapper(EWrapper):
     def save_data_to_csv(self, reqId, filename, bar_size):
         if DEBUG:
             print("Inside save_data_to_csv")
+        
         # Specify the data folder where CSV files will be stored
         data_folder = "./historical_data/forex"
 
@@ -45,25 +47,42 @@ class MyWrapper(EWrapper):
         bar_size_filename = bar_size.replace(" ", "_")
 
         # Create the folder path for the specific currency pair
-        currency_pair_folder = os.path.join(data_folder, f"{currency_pair}/{ bar_size_folder_name}")
+        currency_pair_folder = os.path.join(data_folder, f"{currency_pair}/{bar_size_folder_name}")
 
         # Create the currency pair folder if it doesn't exist
         os.makedirs(currency_pair_folder, exist_ok=True)
         # Replace space with underscore in bar_size for folder and filename
+
+        # Preprocess date and time string
+        # Preprocess date and time string
+        # def preprocess_date(date_str):
+        #     global global_bar_size
+        #     # Check if the datetime string is a placeholder value
+        #     if date_str == "1970-01-01 00:00:00.000000000":
+        #         # You can choose to return a placeholder datetime or handle it differently
+        #         return pd.to_datetime(date_str)
+
+        #     if global_bar_size == '1 day':
+        #         return pd.to_datetime(date_str, format='%Y-%m-%d')
+        #     else:
+        #         date_str = date_str.replace(" US/Eastern", "")
+        #         return pd.to_datetime(date_str, format='mixed')
+        def preprocess_date(date_str):
+            date_str = date_str.replace(" US/Eastern", "")
+            return pd.to_datetime(date_str, format='mixed')
+
 
 
         # Check if the specified bar size exists in the mapping
         if bar_size in valid_bar_sizes:
             # Add the bar size suffix to the filename
             filename_with_suffix = f"{filename}_{bar_size_filename}.csv"
-
         else:
             # If the bar size is not found, use a default suffix
             filename_with_suffix = f"{filename}_default.csv"
 
         # Create the complete file path for the CSV file
         file_path = os.path.join(currency_pair_folder, filename_with_suffix)
-
 
         # Check if the file already exists
         if os.path.exists(file_path):
@@ -72,12 +91,12 @@ class MyWrapper(EWrapper):
                 existing_data = pd.read_csv(file_path)
 
                 # Convert the 'Date' column in existing_data to datetime objects
-                existing_data['Date'] = pd.to_datetime(existing_data['Date'])
+                existing_data['Date'] = existing_data['Date'].apply(preprocess_date)
 
                 # Create a DataFrame with new data to append
                 new_data = pd.DataFrame([
-                    [pd.to_datetime(data_point.date), data_point.open, data_point.high, data_point.low,
-                     data_point.close, data_point.volume]
+                    [preprocess_date(data_point.date), data_point.open, data_point.high, data_point.low,
+                    data_point.close, data_point.volume]
                     for data_point in self.contract_map[reqId]['data']
                 ], columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
 
@@ -104,10 +123,12 @@ class MyWrapper(EWrapper):
                     writer = csv.writer(file)
                     writer.writerow(['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
                     for data_point in self.contract_map[reqId]['data']:
-                        writer.writerow([data_point.date, data_point.open, data_point.high, data_point.low,
-                                         data_point.close, data_point.volume])
+                        writer.writerow([preprocess_date(data_point.date), data_point.open, data_point.high, data_point.low,
+                                        data_point.close, data_point.volume])
             except Exception as e:
                 print(f"Error occurred while creating and writing data to the CSV file: {str(e)}")
+
+
 
     def check_data_order(self, currency_pair_folder):
         # List all files in the specified currency pair folder
@@ -271,8 +292,8 @@ def main():
         print("Example: python temp3.py 20230201 1 day")
         sys.exit(1)
     '''
-    approximate_start_date = "20230828"
-    bar_size_string = "5 mins"
+    approximate_start_date = "20210828"
+    bar_size_string = "1 day"
 
     # Parse the bar size argument
     bar_size_parts = bar_size_string.split()
