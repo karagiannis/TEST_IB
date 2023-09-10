@@ -14,7 +14,9 @@ from allowable_forex_pairs import allowable_forex_pairs
 from allowable_US_Stocks import allowable_US_Stocks
 from allowable_US_Bonds import allowable_US_Bonds
 from dateutil.parser import parse
-from settings import DEBUG
+from settings import *
+import pdb
+
 
 # Rest of your code
 
@@ -45,8 +47,10 @@ def generate_update_list(top_directory: str):
             last_saved_bar_datetime_str = last_OHLC_date_from_csv_file(csv_file_path)
             last_saved_bar_datetime_str=transform_datetime_format(last_saved_bar_datetime_str)
 
+            # Use pandas with 'mixed' format for datetime parsing
+            last_saved_bar_datetime = pd.to_datetime(last_saved_bar_datetime_str, format='mixed')
             eastern_tz = pytz.timezone('US/Eastern')
-            last_saved_bar_datetime = eastern_tz.localize(datetime.strptime(last_saved_bar_datetime_str, "%Y%m%d %H:%M:%S"))
+            last_saved_bar_datetime = eastern_tz.localize(last_saved_bar_datetime)
 
 
             start_datetime = last_saved_bar_datetime
@@ -63,13 +67,13 @@ def generate_update_list(top_directory: str):
             'start_datetime': start_datetime,
             'end_datetime': end_datetime,
             'actual_duration':actual_duration,
-            "max_allowable_duration_look_back": get_duration_seconds_from_duration_str(\
-                maximum_duration_time_when_requesting_bars(bar_size)),
+            # "max_allowable_duration_look_back": get_duration_seconds_from_duration_str(\
+            #     maximum_duration_time_when_requesting_bars(bar_size)),
             'contract': contract,
             'instrument': instrument,
-            'bar_size': bar_size,
-            'max_duration': allowable_duration_in_bar_request,
-            'file_path': csv_file_path
+            'bar_size': bar_size#,
+            # 'max_duration': allowable_duration_in_bar_request,
+            # 'file_path': csv_file_path
         }
         logging.debug(f"Generated update_dict: {update_dict}")
 
@@ -475,77 +479,71 @@ def minimum_duration_str_when_requesting_bars(bar_size: str):
 
 
 
-
 def make_data_requests(request_list, client=None):
     if DEBUG:
-        print("Inside make_data_requests")
+        print("Inside make_data_requests")  
     logging.debug("Inside make_data_requests, fn_19")
     num_requests = len(request_list)
-
     request_index = 0
     pacing_window_seconds = 600  # 10 minutes
     wait_time_between_requests = 3  # 3 seconds
-    pacing_elapsed_time = 0.0
+
     if DEBUG:
-        pacing_window_seconds = 5
-        wait_time_between_requests = 1
+        pacing_window_seconds = DEBUG_pacing_window_seconds  
+        wait_time_between_requests = DEBUG_wait_time_between_requests    
 
     done = False
-    if DEBUG:
-        print("num_requests:", num_requests)
+    sub_counter = 0
 
-    while (request_index < num_requests) and not done:
-        sub_counter = 0
+    while request_index < num_requests and not done:
+        # Start timer for max 60 requests within pacing_window_seconds
         pacing_start_time = time.time()
-        if DEBUG:
-            print("pacing_start_time:", pacing_start_time)
 
-        while request_index < num_requests:
-            while pacing_elapsed_time < pacing_window_seconds:
-                while sub_counter < 60:
-                    if request_index < num_requests:
-                        print("Entering the if request_index < num_requests block")
-                        request = request_list[request_index]
-                        if DEBUG:
-                            print("Calling request_data dummy function")
-                        if client is not None:
-                            client.request_data(request['contract'], request['instrument'],
-                                                request['end_datetime'], request['max_duration'], request['bar_size'])
-                        else:
-                            formatted_end_datetime = request['end_datetime'].strftime('%Y%m%d %H:%M:%S') + ' US/Eastern'
-                            request_data(request['contract'], request['instrument'],
-                                        formatted_end_datetime, request['max_duration'], request['bar_size'])
-                        request_index += 1
-                        sub_counter += 1
+        while request_index < num_requests and (time.time() - pacing_start_time) < pacing_window_seconds:
 
-                        if DEBUG:
-                            print("Request made for:", request['instrument'])
-                            print("request_index:", request_index)
-                            print("sub_counter:", sub_counter)
+            while sub_counter < 60 and (time.time() - pacing_start_time) < pacing_window_seconds:
+                if request_index < num_requests:  # Check if request_index is within range
+                    request = request_list[request_index]
+
+                    # if DEBUG:
+                    #     print("Request made for:", request['instrument'])
+                    #     print("request_index:", request_index)
+                    #     print("sub_counter:", sub_counter)
+                    #     pass
+
+                    if client:
+                        client.request_data(
+                            request['contract'], request['instrument'],
+                            request['end_datetime'], request['max_duration'], request['bar_size'])
                     else:
-                        done = True
-                        break
+                        formatted_end_datetime = request['end_datetime'].strftime('%Y%m%d %H:%M:%S') + ' US/Eastern'
+                        request_data(request['contract'], request['instrument'],
+                                     formatted_end_datetime, request['max_duration'], request['bar_size'])
 
-                if done:
-                    break
-
-                pacing_elapsed_time = time.time() - pacing_start_time
-                remaining_wait_time = max(pacing_window_seconds - pacing_elapsed_time, 0)
-
-                if sub_counter < 60:
+                    request_index += 1
+                    # elapsed_time = time.time() - pacing_start_time
+                    # remaining_time = max(pacing_window_seconds - elapsed_time, 0)
+                    sub_counter += 1
                     time.sleep(wait_time_between_requests)
-                    break
-                else:
-                    sub_counter = 0
-                    break
+                    if DEBUG:
+                        if sub_counter == 59:
+                            # pdb.set_trace()
+                            pass
 
-            if done:
-                break
-            else:
-                pacing_elapsed_time = 0  # Reset pacing elapsed time for a new frame
-                break
-        else:
-            done = True
+                else:
+                    done = True  # Mark as done when we have processed all requests
+
+        # Sleep for the remaining time in the pacing window
+        elapsed_time = time.time() - pacing_start_time
+        remaining_time = max(pacing_window_seconds - elapsed_time, 0)
+        time.sleep(remaining_time)
+
+        # Reset sub_counter for the next pacing window
+        sub_counter = 0
+
+    if DEBUG:
+        print("All requests completed.")
+
 
 
 def get_last_friday_date():
@@ -558,11 +556,13 @@ def get_last_friday_date():
     temp = temp.replace(hour=23, minute=59, second=59)
     return temp
 
-def save_data_to_csv(contract_map, reqId, bar_size):
-    logging.debug("Inside save_data_to_csv, fn_21")
 
-    if DEBUG:
-        print("Inside save_data_to_csv, bar_size = ", bar_size)
+
+def save_data_to_csv(contract_map, reqId, bar_size):
+    logging.debug("Inside save_data_to_csv")
+
+    # if DEBUG:
+    #     print("Inside save_data_to_csv, bar_size =", bar_size)
 
     forex_instrument = False
     us_stock_instrument = False
@@ -574,44 +574,41 @@ def save_data_to_csv(contract_map, reqId, bar_size):
 
     instrument = None
     top_folder = "./historical_data"
+    
     if DEBUG:
         top_folder = "./temp_historical_data"
     
     if forex_pair in allowable_forex_pairs:
-        data_folder = top_folder+"/forex"
+        data_folder = os.path.join(top_folder, "forex")  # Use os.path.join for path handling
         forex_instrument = True
         instrument = forex_pair
         
     elif other_instrument in allowable_US_Stocks:
-        data_folder = top_folder +"/US_Stocks"
+        data_folder = os.path.join(top_folder, "US_Stocks")  # Use os.path.join for path handling
         us_stock_instrument = True
         instrument = other_instrument
     elif other_instrument in allowable_US_Bonds:
-        data_folder = top_folder+ "US_Bonds"
+        data_folder = os.path.join(top_folder, "US_Bonds")  # Use os.path.join for path handling
         us_bond_instrument = True
         instrument = other_instrument
     else:
         raise ValueError("Inside save_data_to_csv")
 
-
-
     # Create the data folder if it doesn't exist
     os.makedirs(data_folder, exist_ok=True)
-
 
     bar_size_folder_name = bar_size.replace(" ", "_")
     bar_size_filename = bar_size.replace(" ", "_")
 
     # Create the folder path for the specific currency pair
-    instrument_folder = os.path.join(data_folder, f"{instrument}/{ bar_size_folder_name}")
+    instrument_folder = os.path.join(data_folder, f"{instrument}/{bar_size_folder_name}")
 
     # Create the currency pair folder if it doesn't exist
     os.makedirs(instrument_folder, exist_ok=True)
-    # Replace space with underscore in bar_size for folder and filename
 
-
-   # Get the bar duration from the allowable_bar_sizes dictionary
+    # Get the bar duration from the allowable_bar_sizes dictionary
     bar_duration = allowable_bar_sizes.get(bar_size)
+    
     if bar_duration is None:
         print("bar_size:", bar_size)
         raise ValueError("Inside save_data_to_csv. Valid bar_size not found")
@@ -622,38 +619,40 @@ def save_data_to_csv(contract_map, reqId, bar_size):
     # Create the complete file path for the CSV file
     file_path = os.path.join(instrument_folder, filename_with_suffix)
 
-
+    def preprocess_date(date_str):
+            date_str = date_str.replace(" US/Eastern", "")
+            return pd.to_datetime(date_str, format='mixed')
+    
     # Check if the file already exists
     if os.path.exists(file_path):
         try:
+            # Load existing data from the CSV file
             existing_data = pd.read_csv(file_path)
 
-            if existing_data.empty:
-                # Create a new file and write the data
-                with open(file_path, mode='w', newline='') as file:
-                    writer = csv.writer(file)
-                    writer.writerow(['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
-                    for data_point in contract_map[reqId]['data']:
-                        writer.writerow([data_point.date, data_point.open, data_point.high, data_point.low,
-                                         data_point.close, data_point.volume])
-                
-            else:
-                # File is not empty, continue with appending data
-                existing_data['Date'] = pd.to_datetime(existing_data['Date'])
-                new_data = pd.DataFrame([
-                    [pd.to_datetime(data_point.date), data_point.open, data_point.high, data_point.low,
-                    data_point.close, data_point.volume]
-                    for data_point in contract_map[reqId]['data']
-                ], columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
+            # Convert the 'Date' column in existing_data to datetime objects
+            existing_data['Date'] = existing_data['Date'].apply(preprocess_date)
 
-                combined_data = pd.concat([existing_data, new_data])
-                combined_data.drop_duplicates(subset=['Date'], keep='first', inplace=True)
-                combined_data.sort_values(by='Date', inplace=True)
-                combined_data.to_csv(file_path, index=False)
+            # Create a DataFrame with new data to append
+            new_data = pd.DataFrame([
+                [preprocess_date(data_point.date), data_point.open, data_point.high, data_point.low,
+                data_point.close, data_point.volume]
+                for data_point in contract_map[reqId]['data']
+            ], columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
+
+            # Concatenate the existing data and new data
+            combined_data = pd.concat([existing_data, new_data])
+
+            # Remove duplicate rows based on the 'Date' column
+            combined_data.drop_duplicates(subset=['Date'], keep='first', inplace=True)
+
+            # Sort the combined data by the 'Date' column
+            combined_data.sort_values(by='Date', inplace=True)
+
+            # Write the combined data to the CSV file
+            combined_data.to_csv(file_path, index=False)
 
         except Exception as e:
-            print(f"Error occurred while appending data to existing CSV file: {str(e)}\
-                  for {instrument}")
+            print(f"Error occurred while appending data to existing CSV file: {str(e)}")
     else:
         if DEBUG:
             print("Inside save_data_to_csv, trying to create csv-file because none existed")
@@ -663,10 +662,11 @@ def save_data_to_csv(contract_map, reqId, bar_size):
                 writer = csv.writer(file)
                 writer.writerow(['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
                 for data_point in contract_map[reqId]['data']:
-                    writer.writerow([data_point.date, data_point.open, data_point.high, data_point.low,
+                    writer.writerow([preprocess_date(data_point.date), data_point.open, data_point.high, data_point.low,
                                     data_point.close, data_point.volume])
         except Exception as e:
             print(f"Error occurred while creating and writing data to the CSV file: {str(e)}")
+
 
 
 def get_bar_size_str_from_bar_size_sec(bar_size):
@@ -700,8 +700,6 @@ def transform_datetime_format(datetime_str):
     datetime_str = re.sub(r' US/Eastern', '', datetime_str)
     # Remove excessive zeros in decimals and decimal separator
     datetime_str = re.sub(r'\.\d+', '', datetime_str)
-    # Remove '-' character
-    datetime_str = datetime_str.replace('-', '')
     #print("Inside transform_datetime_format,datetime_str:", datetime_str)
 
     return datetime_str
@@ -781,11 +779,11 @@ request_counter = 0
 def request_data(contract, instrument, end_datetime, duration, bar_size):
         logging.debug("Inside request_data")
         global request_counter
-        print("contract: ", contract)
-        print("instrument: ", instrument)
-        print("end_datetime: ", end_datetime)
-        print("duration: ", duration)
-        print("bar_size: ", bar_size)
+        # print("contract: ", contract)
+        # print("instrument: ", instrument)
+        # print("end_datetime: ", end_datetime)
+        # print("duration: ", duration)
+        # print("bar_size: ", bar_size)
 
         request_counter += 1
         datetime_now = datetime.now()
@@ -801,7 +799,14 @@ def request_data(contract, instrument, end_datetime, duration, bar_size):
 
         return None
 
+def update_data(client, top_directory):
+    collection_need_of_update = generate_update_list(top_directory)
+    request_list = generate_request_list(collection_need_of_update)
+    make_data_requests(request_list, client)
+    list_of_csv_files = listAllCsvfilesPaths(top_directory)
 
+    for file_path in list_of_csv_files:
+        clean_csv_file_from_fake_bars(file_path)
 
 
 def main():
