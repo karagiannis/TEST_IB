@@ -107,12 +107,7 @@ def main():
     historical_data_thread.start()
 
     top_directory = "./historical_data"
-    collection_need_of_update = utility_functions.generate_update_list(top_directory)
-    #print("collection_need_of_update:",collection_need_of_update)
-
-    #generate the request list with appropriate IB duration strings
-    request_list = utility_functions.generate_request_list(collection_need_of_update)
-    utility_functions.make_data_requests(request_list,client)
+    utility_functions.update_data(client, top_directory)
 
     
     client.disconnect()
@@ -145,6 +140,7 @@ if __name__ == "__main__":
         #               Reset the counter and reset the timer
 #                   else the data is lost and needs to be requested 6 months back in time
 #                       with consideration to number of request per 10 minutes
+#Contract map datastructure looks like this. Attention, they keys are integers!
 # contract_map = {
 #     0: {
 #         'contract': contract1,
