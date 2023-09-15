@@ -4,6 +4,9 @@ import threading  # Import threading module for multithreading
 from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
 import utility_functions
+from ibapi.ticktype import TickType
+
+
 
 reqId = 0
 bar_size_str = None
@@ -19,6 +22,8 @@ class MyWrapper(EWrapper):
         super().__init__()
         self.contract_map = {}
         self.data_received = False
+        self.bid_price = None
+        self.ask_price = None
 
     # Override the error method to handle errors
     def error(self, e):
@@ -78,6 +83,19 @@ class MyWrapper(EWrapper):
                 utility_functions.save_data_to_csv(self.contract_map, reqId, bar_size_str)
         print("save_data_to_csv returned, stored live data")
 
+    def tickPrice(self, tickerId, field, price, attribs):
+        # # Process the received tick price data
+        # Use integer values for field (e.g., 1 for BID, 2 for ASK)
+        if field == 1:  # BID
+            self.bid_price = price
+        elif field == 2:  # ASK
+            self.ask_price = price
+
+        # Check if both bid and ask prices are available
+        if self.bid_price is not None and self.ask_price is not None:
+            print(f"Bid Price: {self.bid_price}, Ask Price: {self.ask_price}")
+
+
 class MyClient(EClient):
     def __init__(self, wrapper):
         EClient.__init__(self, wrapper)
@@ -115,6 +133,25 @@ class MyClient(EClient):
 
             print("Finished requesting data.")
 
+    def request_live_stream_data(self, contract, instrument, bar_size):
+        global reqId
+        global bar_size_str
+        # Lock access to reqId and bar_size_str
+        with reqId_lock, bar_size_str_lock, contract_map_lock:
+            bar_size_str = bar_size
+            reqId += 1
+            self.wrapper.contract_map[reqId] = {'data': [], 'contract': contract}
+
+            print(f"Requesting data for {instrument} with a bar size {bar_size}.")
+            tickerId = reqId
+            genericTickList = ""
+            self.reqMktData(tickerId, contract, genericTickList, False, False,
+                                [])  # Set snapshot to False for streaming data
+
+            print("Requested live streaming data.")
+
+            print("Finished requesting live streaming data.")
+
 
 wrapper = MyWrapper()
 client = MyClient(wrapper)
@@ -135,7 +172,11 @@ def main():
     historical_data_thread.start()
 
     # Start the user input  thread
-    user_input_thread = threading.Thread(target=utility_functions.create_forex_data_request_gui(client,utility_functions.request_live_data_for_pair))
+    # user_input_thread = threading.Thread(target=utility_functions.create_forex_data_request_gui(client,utility_functions.request_live_data_for_pair))
+    # user_input_thread.start()
+
+    # Start the user input thread with request_live_data_for_pair_snd
+    user_input_thread = threading.Thread(target=utility_functions.create_forex_data_request_gui(client,utility_functions.request_live_data_for_pair_snd))
     user_input_thread.start()
 
     #top_directory = "./historical_data"

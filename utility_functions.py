@@ -821,34 +821,15 @@ def request_live_data_for_pair(client, pair, bar_size):
     now = datetime_now_NewYork_time()
     client.request_data(contract, pair, now, duration, bar_size, keepUpToDate=True)
 
+def request_live_data_for_pair_snd(client, pair, bar_size):
+    # Your code to request live data for the specified pair here
+    contract = Contract()
+    contract.symbol = pair[:3]
+    contract.currency = pair[3:]
+    contract.exchange = "IDEALPRO"
+    contract.secType = "CASH"  # Specify the security type
+    client.request_live_stream_data(contract, pair, bar_size)
 
-def request_real_time_data(client, contract, tickerId):
-    # Define the generic tick list as an empty string for basic data
-    genericTickList = ""
-
-    # Set snapshot to False to receive streaming data
-    snapshot = False
-
-    # Set regulatory snapshot to False for regular streaming data
-    regulatorySnapshot = False
-
-    # Define any market data options as needed (usually an empty list for basic data)
-    mktDataOptions = []
-
-    # Request real-time market data
-    client.reqMktData(tickerId, contract, genericTickList, snapshot, regulatorySnapshot, mktDataOptions)
-
-
-# Usage example
-contract = Contract()
-contract.symbol = "AAPL"
-contract.secType = "STK"
-contract.exchange = "SMART"
-contract.currency = "USD"
-
-tickerId = 1  # Unique identifier for this request
-
-request_real_time_data(client, contract, tickerId)
 
 
 # def user_input(client):
