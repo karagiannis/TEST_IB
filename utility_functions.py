@@ -16,6 +16,9 @@ from allowable_US_Bonds import allowable_US_Bonds
 from dateutil.parser import parse
 from settings import *
 import pdb
+import tkinter as tk
+from tkinter import Entry
+
 
 
 # Rest of your code
@@ -80,7 +83,6 @@ def generate_update_list(top_directory: str):
         collection_need_of_update.append(update_dict)
     logging.debug("Completed generate_update_list function")
     return collection_need_of_update
-
 
 def listAllCsvfilesPaths(top_directory):
     logging.debug("Inside listAllCsvfilesPaths, fn_2")
@@ -560,7 +562,7 @@ def get_last_friday_date():
 
 def save_data_to_csv(contract_map, reqId, bar_size):
     logging.debug("Inside save_data_to_csv")
-
+    #print("Inside save_data_to_csv, bar_size,reqId,contract_map =", bar_size,reqId,contract_map)
     # if DEBUG:
     #     print("Inside save_data_to_csv, bar_size =", bar_size)
 
@@ -807,6 +809,80 @@ def update_data(client, top_directory):
 
     for file_path in list_of_csv_files:
         clean_csv_file_from_fake_bars(file_path)
+
+def request_live_data_for_pair(client, pair, bar_size):
+    # Your code to request live data for the specified pair here
+    contract = Contract()
+    contract.symbol = pair[:3]
+    contract.currency = pair[3:]
+    contract.exchange = "IDEALPRO"
+    contract.secType = "CASH"  # Specify the security type
+    duration = "60 S"
+    now = datetime_now_NewYork_time()
+    client.request_data(contract, pair, now, duration, bar_size, keepUpToDate=True)
+
+
+def request_real_time_data(client, contract, tickerId):
+    # Define the generic tick list as an empty string for basic data
+    genericTickList = ""
+
+    # Set snapshot to False to receive streaming data
+    snapshot = False
+
+    # Set regulatory snapshot to False for regular streaming data
+    regulatorySnapshot = False
+
+    # Define any market data options as needed (usually an empty list for basic data)
+    mktDataOptions = []
+
+    # Request real-time market data
+    client.reqMktData(tickerId, contract, genericTickList, snapshot, regulatorySnapshot, mktDataOptions)
+
+
+# Usage example
+contract = Contract()
+contract.symbol = "AAPL"
+contract.secType = "STK"
+contract.exchange = "SMART"
+contract.currency = "USD"
+
+tickerId = 1  # Unique identifier for this request
+
+request_real_time_data(client, contract, tickerId)
+
+
+# def user_input(client):
+#
+#     while True:
+#         pair = input("Enter pair")
+#         bar_size = input("Enter bar size, default is '1 min' ")
+#         client. cancelHistoricalData(client.reqId)
+#         request_live_data_for_pair(client, pair, bar_size)
+
+def create_forex_data_request_gui(client, request_live_data_for_pair):
+    def on_button_click():
+        pair = pair_entry.get()
+        bar_size = bar_size_entry.get()
+        if pair and bar_size:
+            request_live_data_for_pair(client, pair, bar_size)
+
+    root = tk.Tk()
+    root.title("Forex Data Request")
+
+    pair_label = tk.Label(root, text="Enter pair:")
+    pair_label.pack()
+    pair_entry = Entry(root)
+    pair_entry.pack()
+
+    bar_size_label = tk.Label(root, text="Enter bar size (default is '1 min'):")
+    bar_size_label.pack()
+    bar_size_entry = Entry(root)
+    bar_size_entry.pack()
+
+    request_button = tk.Button(root, text="Request Live Data", command=on_button_click)
+    request_button.pack()
+
+    root.mainloop()
 
 
 def main():
