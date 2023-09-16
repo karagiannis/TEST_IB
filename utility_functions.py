@@ -120,7 +120,7 @@ def datetime_now_NewYork_time():
     logging.debug("datetime_now_NewYork_time, fn_4")
     eastern_tz = pytz.timezone('US/Eastern')
     current_time = datetime.now(eastern_tz)
-    return current_time  # "20230723 15:15:00 US/Eastern"
+    return current_time
 
 
 def bar_size_from_file_path(file_path):
@@ -440,6 +440,8 @@ def minimum_duration_str_when_requesting_bars(bar_size: str):
         bar_size_seconds = allowable_bar_sizes[bar_size]
         if bar_size_seconds == 30:
             min_duration = "1800 S"
+        elif bar_size_seconds == 60:
+            min_duration = "1800 S"
         elif bar_size_seconds == 120:
             min_duration = "1800 S"
         elif bar_size_seconds == 180:
@@ -559,7 +561,9 @@ def get_last_friday_date():
     return temp
 
 
-
+def preprocess_date(date_str):
+        date_str = date_str.replace(" US/Eastern", "")
+        return pd.to_datetime(date_str, format='mixed')
 def save_data_to_csv(contract_map, reqId, bar_size):
     logging.debug("Inside save_data_to_csv")
     #print("Inside save_data_to_csv, bar_size,reqId,contract_map =", bar_size,reqId,contract_map)
@@ -621,9 +625,7 @@ def save_data_to_csv(contract_map, reqId, bar_size):
     # Create the complete file path for the CSV file
     file_path = os.path.join(instrument_folder, filename_with_suffix)
 
-    def preprocess_date(date_str):
-            date_str = date_str.replace(" US/Eastern", "")
-            return pd.to_datetime(date_str, format='mixed')
+
     
     # Check if the file already exists
     if os.path.exists(file_path):
@@ -845,6 +847,8 @@ def create_forex_data_request_gui(client, request_live_data_for_pair):
         pair = pair_entry.get()
         bar_size = bar_size_entry.get()
         if pair and bar_size:
+            global current_time
+            current_time = datetime_now_NewYork_time()
             request_live_data_for_pair(client, pair, bar_size)
 
     root = tk.Tk()
@@ -864,6 +868,173 @@ def create_forex_data_request_gui(client, request_live_data_for_pair):
     request_button.pack()
 
     root.mainloop()
+
+
+import threading
+
+
+def calculate_mid_prices(tick_data):
+    # Calculate mid prices for each tick and return a copy of tick_data with mid prices
+    mid_price_dict = {}
+
+    for sec_key, entries in tick_data.items():
+        mid_price_entries = []
+
+        for entry in entries:
+            bid_price = entry['bid_price']
+            ask_price = entry['ask_price']
+            mid_price = (bid_price + ask_price) / 2
+
+            # Create a new entry with mid price
+            mid_price_entry = {
+                'reqId': entry['reqId'],
+                'instrument': entry['instrument'],
+                'mid_price': mid_price,
+            }
+
+            mid_price_entries.append(mid_price_entry)
+
+        mid_price_dict[sec_key] = mid_price_entries
+
+    return mid_price_dict
+
+
+
+
+def create_dataframe(mid_prices_data):
+    # Initialize an empty DataFrame
+    df = pd.DataFrame(columns=['reqId', 'instrument', 'mid_price', 'timestamp'])
+
+    for sec_key, entries in mid_prices_data.items():
+        for entry in entries:
+            reqId = entry['reqId']
+            instrument = entry['instrument']
+            mid_price = entry['mid_price']
+
+            # Convert sec_key (timestamp) to a datetime object
+            timestamp = pd.to_datetime(sec_key, format='%Y-%m-%d %H:%M:%S.%f')
+
+            # Create a new row as a DataFrame
+            new_row = pd.DataFrame(
+                {'reqId': [reqId], 'instrument': [instrument], 'mid_price': [mid_price], 'timestamp': [timestamp]})
+
+            # Concatenate the new row to the existing DataFrame
+            df = pd.concat([df, new_row], ignore_index=True)
+
+    # Set the timestamp as the index
+    df.set_index('timestamp', inplace=True)
+
+    return df
+
+def find_minute_transition_start(df):
+    # Check if the first row has seconds 00.xxx
+    if df.index[0].second == 0:
+        return df.index[0]
+
+    # Find where seconds go from 59.xxx to 00.xxx
+    for i in range(1, len(df)):
+        if df.index[i].second == 0 and df.index[i - 1].second == 59:
+            return df.index[i]
+
+    # If no transition is found, return None or an appropriate value
+    return None
+
+
+def drop_trailing_data(dataframe, start_index):
+    # Drop all rows up to (but not including) start_index
+    cleaned_dataframe = dataframe.loc[start_index:]
+
+    return cleaned_dataframe
+
+
+def find_end_minute_transition(df):
+    # Find the index of the minute transition end
+    # Check if the first row has seconds 59.xxx
+    if df.index[0].second == 59:
+        return df.index[0]
+
+    # Find where seconds go from 59.xxx to 00.xxx
+    for i in range(1, len(df)):
+        if df.index[i].second == 0 and df.index[i - 1].second == 59:
+            return df.index[i-1]
+
+    # If no transition is found, return None
+    return None
+
+
+from ibapi.common import BarData, UNSET_DECIMAL
+
+def create_1_minute_bar(df, start_index, stop_index):
+    # Filter the DataFrame based on start and stop indexes
+    bar_data = df[start_index:stop_index]
+
+    # Calculate the Open, High, Low, Close values for the bar
+    open_price = bar_data['mid_price'].iloc[0]  # Assuming 'mid_price' is the column name for mid prices
+    high_price = bar_data['mid_price'].max()
+    low_price = bar_data['mid_price'].min()
+    close_price = bar_data['mid_price'].iloc[-1]
+
+    # Create a new BarData object
+    bar = BarData()
+    bar.date = start_index.strftime('%Y-%m-%d %H:%M:%S')  # Format timestamp as a string
+    bar.open = open_price
+    bar.high = high_price
+    bar.low = low_price
+    bar.close = close_price
+    bar.volume = -1  # You can set the volume as needed
+    bar.wap = UNSET_DECIMAL
+    bar.barCount = 0  # Assuming this is the correct way to set barCount
+
+    return bar
+
+
+def save_1_minute_bar_to_csv(contract_map, reqId, bar_data, bar_size_str):
+    # Save the 1-minute bar data to CSV
+    contract_map[reqId]['data'].append(bar_data)
+    save_data_to_csv(contract_map, reqId, bar_size_str)
+
+
+def clear_processed_data(tick_data, stop_index):
+    # Clear data from tick_data up to the stop_index
+    keys_to_clear = [key for key in tick_data.keys() if
+                     pd.to_datetime(key, format='%Y-%m-%d %H:%M:%S.%f') <= stop_index]
+
+    for key in keys_to_clear:
+        del tick_data[key]
+
+
+def process_minute_bars(tick_data, contract_map, reqId,bar_size_str, tick_data_lock, reqId_lock, bar_size_str_lock, contract_map_lock):
+    with tick_data_lock:
+        print("Inside process_minute_bars, tick_data:", tick_data)
+    # Step 1: Calculate mid prices
+    mid_prices_data={}
+    mid_prices_data = calculate_mid_prices(tick_data.copy())
+
+    # Step 2: Create a DataFrame
+    dataframe = create_dataframe(mid_prices_data)
+
+    # Step 3: Find the start index of the minute transition
+    start_index = find_minute_transition_start(dataframe)
+
+    # Step 4: Drop trailing data up to the start index
+    if start_index is not None:
+        dataframe = drop_trailing_data(dataframe, start_index)
+
+    # Step 5: Find the end index of the minute transition
+    stop_index = find_end_minute_transition(dataframe)
+
+    # Step 6: Create a 1-minute bar using start and stop indexes
+    if start_index is not None and stop_index is not None:
+        bar_data = create_1_minute_bar(dataframe, start_index, stop_index)
+
+        # Step 7: Call save_data_to_csv
+        with tick_data_lock, reqId_lock, bar_size_str_lock, contract_map_lock:
+            save_1_minute_bar_to_csv(contract_map, reqId, bar_data, bar_size_str)
+
+            # Step 8: Clear tick data up to the stop index
+            clear_processed_data(tick_data, stop_index)
+
+    print("Leaving process_minute_bars")
 
 
 def main():
