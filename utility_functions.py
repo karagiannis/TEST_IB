@@ -672,6 +672,111 @@ def save_data_to_csv(contract_map, reqId, bar_size):
             print(f"Error occurred while creating and writing data to the CSV file: {str(e)}")
 
 
+def save_data_to_txt(contract_map, reqId, bar_size):
+    logging.debug("Inside save_data_to_csv")
+    # print("Inside save_data_to_csv, bar_size,reqId,contract_map =", bar_size,reqId,contract_map)
+    # if DEBUG:
+    #     print("Inside save_data_to_csv, bar_size =", bar_size)
+
+    forex_instrument = False
+    us_stock_instrument = False
+    us_bond_instrument = False
+
+    contract = contract_map[reqId]['contract']
+    forex_pair = f"{contract.symbol}{contract.currency}"
+    other_instrument = f"{contract.symbol}"
+
+    instrument = None
+    top_folder = "./historical_data"
+
+    if DEBUG:
+        top_folder = "./temp_historical_data"
+
+    if forex_pair in allowable_forex_pairs:
+        data_folder = os.path.join(top_folder, "forex")  # Use os.path.join for path handling
+        forex_instrument = True
+        instrument = forex_pair
+
+    elif other_instrument in allowable_US_Stocks:
+        data_folder = os.path.join(top_folder, "US_Stocks")  # Use os.path.join for path handling
+        us_stock_instrument = True
+        instrument = other_instrument
+    elif other_instrument in allowable_US_Bonds:
+        data_folder = os.path.join(top_folder, "US_Bonds")  # Use os.path.join for path handling
+        us_bond_instrument = True
+        instrument = other_instrument
+    else:
+        raise ValueError("Inside save_data_to_txt")
+
+    # Create the data folder if it doesn't exist
+    os.makedirs(data_folder, exist_ok=True)
+
+    bar_size_folder_name = bar_size.replace(" ", "_")
+    bar_size_filename = bar_size.replace(" ", "_")
+
+    # Create the folder path for the specific currency pair
+    instrument_folder = os.path.join(data_folder, f"{instrument}/{bar_size_folder_name}")
+
+    # Create the currency pair folder if it doesn't exist
+    os.makedirs(instrument_folder, exist_ok=True)
+
+    # Get the bar duration from the allowable_bar_sizes dictionary
+    bar_duration = allowable_bar_sizes.get(bar_size)
+
+    if bar_duration is None:
+        print("bar_size:", bar_size)
+        raise ValueError("Inside save_data_to_txt. Valid bar_size not found")
+
+    # Add the bar size suffix to the filename
+    filename_with_suffix = f"{instrument}_{bar_size_filename}.txt"
+
+    # Create the complete file path for the CSV file
+    file_path = os.path.join(instrument_folder, filename_with_suffix)
+
+    # Check if the file already exists
+    if os.path.exists(file_path):
+        try:
+            # Load existing data from the CSV file
+            existing_data = pd.read_csv(file_path)
+
+            # Convert the 'Date' column in existing_data to datetime objects
+            existing_data['Date'] = existing_data['Date'].apply(preprocess_date)
+
+            # Create a DataFrame with new data to append
+            new_data = pd.DataFrame([
+                [preprocess_date(data_point.date), data_point.open, data_point.high, data_point.low,
+                 data_point.close, data_point.volume]
+                for data_point in contract_map[reqId]['data']
+            ], columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
+
+            # Concatenate the existing data and new data
+            combined_data = pd.concat([existing_data, new_data])
+
+            # Remove duplicate rows based on the 'Date' column
+            combined_data.drop_duplicates(subset=['Date'], keep='first', inplace=True)
+
+            # Sort the combined data by the 'Date' column
+            combined_data.sort_values(by='Date', inplace=True)
+
+            # Write the combined data to the CSV file
+            combined_data.to_csv(file_path, index=False)
+
+        except Exception as e:
+            print(f"Error occurred while appending data to existing TXT file: {str(e)}")
+    else:
+        if DEBUG:
+            print("Inside save_data_to_txt, trying to create txt-file because none existed")
+        try:
+            # Create a new file and write the data
+            with open(file_path, mode='w', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow(['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
+                for data_point in contract_map[reqId]['data']:
+                    writer.writerow([preprocess_date(data_point.date), data_point.open, data_point.high, data_point.low,
+                                     data_point.close, data_point.volume])
+        except Exception as e:
+            print(f"Error occurred while creating and writing data to the TXT file: {str(e)}")
+
 
 def get_bar_size_str_from_bar_size_sec(bar_size):
     logging.debug("Inside bar_size_str_from_bar_size_sec")
@@ -717,43 +822,6 @@ def format_datetime(dt):
     #print("Inside format_datetime, dt:",dt)
     #print("Inside format_datetime, dt.strftime:",dt.strftime("%Y%m%d %H:%M:%S"))
     return dt.strftime("%Y%m%d %H:%M:%S")
-
-
-    
-# def get_finer_granularity_duration_in_seconds(duration_str):
-
-#     logging.debug("Inside get_finer_granularity_duration_in_seconds")
-#     # Step 1: Convert keys to a list
-#     allowable_duration_keys = list(allowable_duration.keys())
-
-#     # Step 2: Find index of max_duration key
-#     max_duration_index = allowable_duration_keys.index(duration_str)
-
-#     # Step 3: Get the key of the finer granularity duration
-#     finer_granularity_key = allowable_duration_keys[max_duration_index - 1]
-
-#     # Step 4: Retrieve finer granularity duration
-#     finer_granularity_duration = allowable_duration[finer_granularity_key][0][1]
-
-#     return finer_granularity_duration
-
-# def get_finer_granularity_duration_as_string(duration_str):
-
-
-#     # Step 1: Convert keys to a list
-#     allowable_duration_keys = list(allowable_duration.keys())
-
-#     # Step 2: Find index of max_duration key
-#     max_duration_index = allowable_duration_keys.index(duration_str)
-
-#     # Step 3: Get the key of the finer granularity duration
-#     finer_granularity_key = allowable_duration_keys[max_duration_index - 1]
-
-
-#     return finer_granularity_key
-
-    
-
 
 
 # IB outputs fake OHLC data for requests which include
@@ -832,23 +900,11 @@ def request_live_data_for_pair_snd(client, pair, bar_size):
     contract.secType = "CASH"  # Specify the security type
     client.request_live_stream_data(contract, pair, bar_size)
 
-
-
-# def user_input(client):
-#
-#     while True:
-#         pair = input("Enter pair")
-#         bar_size = input("Enter bar size, default is '1 min' ")
-#         client. cancelHistoricalData(client.reqId)
-#         request_live_data_for_pair(client, pair, bar_size)
-
 def create_forex_data_request_gui(client, request_live_data_for_pair):
     def on_button_click():
         pair = pair_entry.get()
         bar_size = bar_size_entry.get()
         if pair and bar_size:
-            global current_time
-            current_time = datetime_now_NewYork_time()
             request_live_data_for_pair(client, pair, bar_size)
 
     root = tk.Tk()
@@ -873,168 +929,151 @@ def create_forex_data_request_gui(client, request_live_data_for_pair):
 import threading
 
 
-def calculate_mid_prices(tick_data):
-    # Calculate mid prices for each tick and return a copy of tick_data with mid prices
-    mid_price_dict = {}
-
-    for sec_key, entries in tick_data.items():
-        mid_price_entries = []
-
-        for entry in entries:
-            bid_price = entry['bid_price']
-            ask_price = entry['ask_price']
-            mid_price = (bid_price + ask_price) / 2
-
-            # Create a new entry with mid price
-            mid_price_entry = {
-                'reqId': entry['reqId'],
-                'instrument': entry['instrument'],
-                'mid_price': mid_price,
-            }
-
-            mid_price_entries.append(mid_price_entry)
-
-        mid_price_dict[sec_key] = mid_price_entries
-
-    return mid_price_dict
-
-
-
-
-def create_dataframe(mid_prices_data):
-    # Initialize an empty DataFrame
-    df = pd.DataFrame(columns=['reqId', 'instrument', 'mid_price', 'timestamp'])
-
-    for sec_key, entries in mid_prices_data.items():
-        for entry in entries:
-            reqId = entry['reqId']
-            instrument = entry['instrument']
-            mid_price = entry['mid_price']
-
-            # Convert sec_key (timestamp) to a datetime object
-            timestamp = pd.to_datetime(sec_key, format='%Y-%m-%d %H:%M:%S.%f')
-
-            # Create a new row as a DataFrame
-            new_row = pd.DataFrame(
-                {'reqId': [reqId], 'instrument': [instrument], 'mid_price': [mid_price], 'timestamp': [timestamp]})
-
-            # Concatenate the new row to the existing DataFrame
-            df = pd.concat([df, new_row], ignore_index=True)
-
-    # Set the timestamp as the index
-    df.set_index('timestamp', inplace=True)
-
-    return df
-
-def find_minute_transition_start(df):
-    # Check if the first row has seconds 00.xxx
-    if df.index[0].second == 0:
-        return df.index[0]
-
-    # Find where seconds go from 59.xxx to 00.xxx
-    for i in range(1, len(df)):
-        if df.index[i].second == 0 and df.index[i - 1].second == 59:
-            return df.index[i]
-
-    # If no transition is found, return None or an appropriate value
-    return None
-
-
-def drop_trailing_data(dataframe, start_index):
-    # Drop all rows up to (but not including) start_index
-    cleaned_dataframe = dataframe.loc[start_index:]
-
-    return cleaned_dataframe
-
-
-def find_end_minute_transition(df):
-    # Find the index of the minute transition end
-    # Check if the first row has seconds 59.xxx
-    if df.index[0].second == 59:
-        return df.index[0]
-
-    # Find where seconds go from 59.xxx to 00.xxx
-    for i in range(1, len(df)):
-        if df.index[i].second == 0 and df.index[i - 1].second == 59:
-            return df.index[i-1]
-
-    # If no transition is found, return None
-    return None
 
 
 from ibapi.common import BarData, UNSET_DECIMAL
 
-def create_1_minute_bar(df, start_index, stop_index):
-    # Filter the DataFrame based on start and stop indexes
-    bar_data = df[start_index:stop_index]
+from datetime import datetime, timedelta
 
-    # Calculate the Open, High, Low, Close values for the bar
-    open_price = bar_data['mid_price'].iloc[0]  # Assuming 'mid_price' is the column name for mid prices
-    high_price = bar_data['mid_price'].max()
-    low_price = bar_data['mid_price'].min()
-    close_price = bar_data['mid_price'].iloc[-1]
+import pytz  # Import the pytz library
+
+def has_previous_minute_bar_created(current_time, contract_map):
+    # Create a timezone object for US/Eastern (New York)
+    eastern_timezone = pytz.timezone('US/Eastern')
+
+    # Calculate the datetime for the previous minute with seconds set to 00
+    previous_minute_time = current_time - timedelta(minutes=1)
+    previous_minute_time = previous_minute_time.replace(second=0)
+
+    # Make previous_minute_time timezone-aware
+    previous_minute_time = eastern_timezone.localize(previous_minute_time)
+
+    for reqId, data_dict in contract_map.items():
+        for bar_data in data_dict['data']:
+            # Convert the date string to a datetime object
+            bar_datetime = datetime.strptime(bar_data.date, '%Y-%m-%d %H:%M:%S')
+
+            # Make bar_datetime timezone-aware
+            bar_datetime = eastern_timezone.localize(bar_datetime)
+
+            if bar_datetime == previous_minute_time:
+                return True
+
+    return False  # Return False if no matching bar was found
+
+
+
+from datetime import timedelta
+
+def can_create_previous_minute_bar(current_time, tick_data):
+    previous_minute_start_time = current_time - timedelta(minutes=1)
+    previous_minute_start_time = previous_minute_start_time.replace(second=0)
+
+    previous_minute_end_time = previous_minute_start_time.replace(second=59, microseconds=99999)
+
+    start_time_found = None  # Initialize to None
+    end_time_found = None  # Initialize to None
+
+    for date_time, bid_ask_pair in tick_data:
+        if date_time <= previous_minute_start_time:
+            start_time_found = date_time  # Store the timestamp
+        if date_time > previous_minute_end_time:
+            end_time_found = date_time  # Store the timestamp
+
+    return start_time_found, end_time_found
+
+
+def midprices_from_tick_data(start_time, stop_time, tick_data):
+    mid_price_dict = {}
+
+    for sec_key, entries in tick_data.items():
+        mid_price_entries = []
+        if start_time <= sec_key <= stop_time:
+            for entry in entries:
+                bid_price = entry['bid_price']
+                ask_price = entry['ask_price']
+                mid_price = (bid_price + ask_price) / 2
+
+                # Create a new entry with mid price
+                mid_price_entry = {
+                    'reqId': entry['reqId'],
+                    'instrument': entry['instrument'],
+                    'mid_price': mid_price,
+                }
+
+                mid_price_entries.append(mid_price_entry)
+
+            mid_price_dict[sec_key] = mid_price_entries
+
+    return mid_price_dict
+
+from ibapi.common import BarData
+
+def derive_one_minute_bar_from_mid_price_dict(mid_price_dict):
+    if not mid_price_dict:
+        return None  # No data to process
+
+    # Initialize the open, high, low, and close prices
+    open_price = mid_price_dict[0]['mid_price']
+    high_price = open_price
+    low_price = open_price
+    close_price = mid_price_dict[-1]['mid_price']
+
+    # Calculate tick volume
+    tick_volume = len(mid_price_dict)
+
+    # Find the highest and lowest mid prices
+    for entry in mid_price_dict:
+        mid_price = entry['mid_price']
+        if mid_price > high_price:
+            high_price = mid_price
+        elif mid_price < low_price:
+            low_price = mid_price
+
+    # Format the timestamp as a string with seconds set to 00
+    timestamp_str = mid_price_dict[0]['date'].strftime('%Y-%m-%d %H:%M:00')
 
     # Create a new BarData object
     bar = BarData()
-    bar.date = start_index.strftime('%Y-%m-%d %H:%M:%S')  # Format timestamp as a string
+    bar.date = timestamp_str
     bar.open = open_price
     bar.high = high_price
     bar.low = low_price
     bar.close = close_price
-    bar.volume = -1  # You can set the volume as needed
+    bar.volume = tick_volume
     bar.wap = UNSET_DECIMAL
     bar.barCount = 0  # Assuming this is the correct way to set barCount
 
     return bar
 
 
-def save_1_minute_bar_to_csv(contract_map, reqId, bar_data, bar_size_str):
-    # Save the 1-minute bar data to CSV
-    contract_map[reqId]['data'].append(bar_data)
-    save_data_to_csv(contract_map, reqId, bar_size_str)
 
+def process_minute_bars(tick_data, contract_map, reqId, bar_size_str, reqId_lock, bar_size_str_lock, contract_map_lock):
+    current_daytime = datetime_now_NewYork_time()
 
-def clear_processed_data(tick_data, stop_index):
-    # Clear data from tick_data up to the stop_index
-    keys_to_clear = [key for key in tick_data.keys() if
-                     pd.to_datetime(key, format='%Y-%m-%d %H:%M:%S.%f') <= stop_index]
+    #  Has the one-minute bar for the previous minute been created?
+    previous_minute_bar_created = has_previous_minute_bar_created(current_daytime, contract_map)
 
-    for key in keys_to_clear:
-        del tick_data[key]
+    if not previous_minute_bar_created:
+        # 3a. If no, can it be created?
+        start_time, stop_time = can_create_previous_minute_bar(current_daytime, tick_data)
+        if start_time is not None and stop_time is not None:
 
+            mid_price_dict = midprices_from_tick_data(start_time, stop_time, tick_data)
+            bar = derive_one_minute_bar_from_mid_price_dict(mid_price_dict)
 
-def process_minute_bars(tick_data, contract_map, reqId,bar_size_str, tick_data_lock, reqId_lock, bar_size_str_lock, contract_map_lock):
-    with tick_data_lock:
-        print("Inside process_minute_bars, tick_data:", tick_data)
-    # Step 1: Calculate mid prices
-    mid_prices_data={}
-    mid_prices_data = calculate_mid_prices(tick_data.copy())
+            #Append the bar
+            with contract_map_lock, reqId_lock:
+                if reqId in contract_map:
+                    contract_map[reqId]['data'].append(bar)
 
-    # Step 2: Create a DataFrame
-    dataframe = create_dataframe(mid_prices_data)
-
-    # Step 3: Find the start index of the minute transition
-    start_index = find_minute_transition_start(dataframe)
-
-    # Step 4: Drop trailing data up to the start index
-    if start_index is not None:
-        dataframe = drop_trailing_data(dataframe, start_index)
-
-    # Step 5: Find the end index of the minute transition
-    stop_index = find_end_minute_transition(dataframe)
-
-    # Step 6: Create a 1-minute bar using start and stop indexes
-    if start_index is not None and stop_index is not None:
-        bar_data = create_1_minute_bar(dataframe, start_index, stop_index)
-
-        # Step 7: Call save_data_to_csv
-        with tick_data_lock, reqId_lock, bar_size_str_lock, contract_map_lock:
-            save_1_minute_bar_to_csv(contract_map, reqId, bar_data, bar_size_str)
-
-            # Step 8: Clear tick data up to the stop index
-            clear_processed_data(tick_data, stop_index)
+            # Step 7: Call save_data_to_csv or save_data_to_txt
+            with contract_map_lock, bar_size_str_lock:
+                save_data_to_txt(contract_map, reqId, bar_size_str)
 
     print("Leaving process_minute_bars")
+
+
 
 
 def main():
