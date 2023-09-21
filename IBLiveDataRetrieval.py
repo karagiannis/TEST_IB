@@ -10,12 +10,13 @@ from ibapi.ticktype import TickType
 
 reqId = 0
 bar_size_str = None
-DEBUG = False
+DEBUG = True
 
 # Define locks for shared resources
 contract_map_lock = threading.Lock()
 reqId_lock = threading.Lock()
 bar_size_str_lock = threading.Lock()
+tick_data_lock = threading.RLock()
 
 class MyWrapper(EWrapper):
     def __init__(self):
@@ -24,6 +25,7 @@ class MyWrapper(EWrapper):
         self.data_received = False
         self.bid_price = None
         self.ask_price = None
+        self.tick_data = {}
 
     # Override the error method to handle errors
     def error(self, e):
@@ -84,16 +86,44 @@ class MyWrapper(EWrapper):
         print("save_data_to_csv returned, stored live data")
 
     def tickPrice(self, tickerId, field, price, attribs):
-        # # Process the received tick price data
+        # Process the received tick price data
         # Use integer values for field (e.g., 1 for BID, 2 for ASK)
         if field == 1:  # BID
             self.bid_price = price
         elif field == 2:  # ASK
             self.ask_price = price
 
+        ny_time = utility_functions.datetime_now_NewYork_time()  #.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+
+        with contract_map_lock:  # Acquire lock for thread safety
+            reqId = tickerId
+            instrument = None
+            if reqId in self.contract_map:
+                contract_info = self.contract_map[reqId]['contract']
+                instrument = f"{contract_info.symbol}{contract_info.currency}"
+
         # Check if both bid and ask prices are available
         if self.bid_price is not None and self.ask_price is not None:
-            print(f"Bid Price: {self.bid_price}, Ask Price: {self.ask_price}")
+            # Create a key for the second bar, e.g., "2023-09-15 21:19:35.123"
+            datetime_of_reception = ny_time
+
+            # Create a dictionary to store the tick data
+            tick_data_entry = {
+                'reqId': reqId,
+                'instrument': instrument,
+                'bid_price': self.bid_price,
+                'ask_price': self.ask_price,
+            }
+
+            # Acquire the lock to ensure thread safety when appending to tick_data
+            with tick_data_lock:
+                if datetime_of_reception not in self.tick_data:
+                    self.tick_data[datetime_of_reception] = []
+                self.tick_data[datetime_of_reception].append(tick_data_entry)
+
+                # You can choose to call the utility function to process minute bars here or elsewhere
+                utility_functions.process_minute_bars(self.tick_data, self.contract_map, reqId, bar_size_str, \
+                                                      reqId_lock, bar_size_str_lock, contract_map_lock)
 
 
 class MyClient(EClient):

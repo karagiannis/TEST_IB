@@ -673,8 +673,8 @@ def save_data_to_csv(contract_map, reqId, bar_size):
 
 
 def save_data_to_txt(contract_map, reqId, bar_size):
-    logging.debug("Inside save_data_to_csv")
-    # print("Inside save_data_to_csv, bar_size,reqId,contract_map =", bar_size,reqId,contract_map)
+    logging.debug("Inside save_data_to_txt")
+    print("Inside save_data_to_txt, bar_size,reqId,contract_map =", bar_size,reqId,contract_map)
     # if DEBUG:
     #     print("Inside save_data_to_csv, bar_size =", bar_size)
 
@@ -946,7 +946,7 @@ def has_previous_minute_bar_created(current_time, contract_map):
     previous_minute_time = previous_minute_time.replace(second=0)
 
     # Make previous_minute_time timezone-aware
-    previous_minute_time = eastern_timezone.localize(previous_minute_time)
+    #previous_minute_time = eastern_timezone.localize(previous_minute_time)
 
     for reqId, data_dict in contract_map.items():
         for bar_data in data_dict['data']:
@@ -967,28 +967,38 @@ from datetime import timedelta
 
 def can_create_previous_minute_bar(current_time, tick_data):
     previous_minute_start_time = current_time - timedelta(minutes=1)
-    previous_minute_start_time = previous_minute_start_time.replace(second=0)
+    previous_minute_start_time = previous_minute_start_time.replace(second=0, microsecond=0)  # Set microseconds to 0
 
-    previous_minute_end_time = previous_minute_start_time.replace(second=59, microseconds=99999)
+    previous_minute_end_time = previous_minute_start_time.replace(second=59, microsecond=999999)  # Set microseconds to 999999
 
     start_time_found = None  # Initialize to None
     end_time_found = None  # Initialize to None
 
-    for date_time, bid_ask_pair in tick_data:
-        if date_time <= previous_minute_start_time:
-            start_time_found = date_time  # Store the timestamp
-        if date_time > previous_minute_end_time:
-            end_time_found = date_time  # Store the timestamp
+    for datetime_of_arrival, tick_data_entry_list in tick_data.items():
+        if datetime_of_arrival <= previous_minute_start_time:
+            start_time_found = datetime_of_arrival  # Store the timestamp
+        if datetime_of_arrival > previous_minute_end_time:
+            end_time_found = datetime_of_arrival  # Store the timestamp
+
+    # for second_key, tick_data_entry_list in self.tick_data.items():
+    #     for tick_data_entry in tick_data_entry_list:
+    #         reqId = tick_data_entry['reqId']
+    #         instrument = tick_data_entry['instrument']
+    #         bid_price = tick_data_entry['bid_price']
+    #         ask_price = tick_data_entry['ask_price']
+
+
 
     return start_time_found, end_time_found
+
 
 
 def midprices_from_tick_data(start_time, stop_time, tick_data):
     mid_price_dict = {}
 
-    for sec_key, entries in tick_data.items():
+    for seconds_key, entries in tick_data.items():
         mid_price_entries = []
-        if start_time <= sec_key <= stop_time:
+        if start_time <= seconds_key <= stop_time:
             for entry in entries:
                 bid_price = entry['bid_price']
                 ask_price = entry['ask_price']
@@ -999,13 +1009,15 @@ def midprices_from_tick_data(start_time, stop_time, tick_data):
                     'reqId': entry['reqId'],
                     'instrument': entry['instrument'],
                     'mid_price': mid_price,
+                    'date': seconds_key,  # Store seconds_key as 'data'
                 }
 
                 mid_price_entries.append(mid_price_entry)
 
-            mid_price_dict[sec_key] = mid_price_entries
+            mid_price_dict[seconds_key] = mid_price_entries
 
     return mid_price_dict
+
 
 from ibapi.common import BarData
 
@@ -1013,17 +1025,22 @@ def derive_one_minute_bar_from_mid_price_dict(mid_price_dict):
     if not mid_price_dict:
         return None  # No data to process
 
+    # Convert the values of mid_price_dict into a list
+    mid_price_entries = []
+    for entries in mid_price_dict.values():
+        mid_price_entries.extend(entries)
+
     # Initialize the open, high, low, and close prices
-    open_price = mid_price_dict[0]['mid_price']
+    open_price = mid_price_entries[0]['mid_price']
     high_price = open_price
     low_price = open_price
-    close_price = mid_price_dict[-1]['mid_price']
+    close_price = mid_price_entries[-1]['mid_price']
 
     # Calculate tick volume
-    tick_volume = len(mid_price_dict)
+    tick_volume = len(mid_price_entries)
 
     # Find the highest and lowest mid prices
-    for entry in mid_price_dict:
+    for entry in mid_price_entries:
         mid_price = entry['mid_price']
         if mid_price > high_price:
             high_price = mid_price
@@ -1031,7 +1048,7 @@ def derive_one_minute_bar_from_mid_price_dict(mid_price_dict):
             low_price = mid_price
 
     # Format the timestamp as a string with seconds set to 00
-    timestamp_str = mid_price_dict[0]['date'].strftime('%Y-%m-%d %H:%M:00')
+    timestamp_str = mid_price_entries[0]['date'].strftime('%Y-%m-%d %H:%M:00')
 
     # Create a new BarData object
     bar = BarData()
@@ -1048,15 +1065,18 @@ def derive_one_minute_bar_from_mid_price_dict(mid_price_dict):
 
 
 
+
 def process_minute_bars(tick_data, contract_map, reqId, bar_size_str, reqId_lock, bar_size_str_lock, contract_map_lock):
     current_daytime = datetime_now_NewYork_time()
 
     #  Has the one-minute bar for the previous minute been created?
     previous_minute_bar_created = has_previous_minute_bar_created(current_daytime, contract_map)
-
+    #print("previous_minute_bar_created:", previous_minute_bar_created)
     if not previous_minute_bar_created:
+        #print("previous_minute_bar_created inside if:", previous_minute_bar_created)
         # 3a. If no, can it be created?
         start_time, stop_time = can_create_previous_minute_bar(current_daytime, tick_data)
+        print("start_time, stop_time:",start_time, stop_time)
         if start_time is not None and stop_time is not None:
 
             mid_price_dict = midprices_from_tick_data(start_time, stop_time, tick_data)
@@ -1071,7 +1091,7 @@ def process_minute_bars(tick_data, contract_map, reqId, bar_size_str, reqId_lock
             with contract_map_lock, bar_size_str_lock:
                 save_data_to_txt(contract_map, reqId, bar_size_str)
 
-    print("Leaving process_minute_bars")
+    #print("Leaving process_minute_bars")
 
 
 
